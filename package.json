@@ -4,7 +4,8 @@
     "description": "A redis binary semaphore with some consistency",
     "main": "lib/ioredfour.js",
     "scripts": {
-        "test": "grunt"
+        "test": "grunt",
+        "update": "rm -rf node_modules package-lock.json && ncu -u && npm install"
     },
     "repository": {
         "type": "git",
@@ -23,17 +24,17 @@
     },
     "homepage": "https://github.com/nodemailer/ioredfour#readme",
     "devDependencies": {
-        "chai": "4.3.7",
-        "eslint": "8.34.0",
+        "chai": "4.3.10",
+        "eslint": "8.56.0",
         "eslint-config-nodemailer": "1.2.0",
-        "eslint-config-prettier": "8.6.0",
+        "eslint-config-prettier": "9.1.0",
         "grunt": "1.6.1",
         "grunt-cli": "1.4.3",
-        "grunt-eslint": "24.0.1",
+        "grunt-eslint": "24.3.0",
         "grunt-mocha-test": "0.13.3",
         "mocha": "10.2.0"
     },
     "dependencies": {
-        "ioredis": "5.3.1"
+        "ioredis": "5.3.2"
     }
 }

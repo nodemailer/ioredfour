@@ -6,7 +6,7 @@ const Lock = require('../lib/ioredfour.js');
 const expect = require('chai').expect;
 const Redis = require('ioredis');
 
-const REDIS_CONFIG = 'redis://localhost:6379/11';
+const REDIS_CONFIG = process.env.REDIS_URL || 'redis://localhost:6379/11';
 
 // We need an unique key just in case a previous test run ended with an exception
 // and testing keys were not immediately deleted (these expire automatically after a while)
