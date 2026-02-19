@@ -6,19 +6,29 @@ const Lock = require('../lib/ioredfour.js');
 const expect = require('chai').expect;
 const Redis = require('ioredis');
 
-const REDIS_CONFIG = process.env.REDIS_URL || 'redis://localhost:6379/11';
+const REDIS_STANDALONE_CONFIG = process.env.REDIS_STANDALONE_URL || 'redis://localhost:6379/11';
+const REDIS_CLUSTER_NODES = [
+    { host: 'localhost', port: 7000 },
+    { host: 'localhost', port: 7001 },
+    { host: 'localhost', port: 7002 }
+];
+const TEST_TARGET = process.env.TEST_TARGET || 'standalone';
+const RUN_STANDALONE = TEST_TARGET === 'standalone' || TEST_TARGET === 'all';
+const RUN_CLUSTER = TEST_TARGET === 'cluster' || TEST_TARGET === 'all';
+const describeStandalone = RUN_STANDALONE ? describe : describe.skip;
+const describeCluster = RUN_CLUSTER ? describe : describe.skip;
 
 // We need an unique key just in case a previous test run ended with an exception
 // and testing keys were not immediately deleted (these expire automatically after a while)
 let testKey = 'TEST:' + Date.now();
 
-describe('lock', function () {
+describeStandalone('lock', function () {
     this.timeout(10000); //eslint-disable-line no-invalid-this
 
     let testLock;
 
     beforeEach(done => {
-        const redis = new Redis(REDIS_CONFIG);
+        const redis = new Redis(REDIS_STANDALONE_CONFIG);
         testLock = new Lock({
             redis,
             namespace: 'testLock',
@@ -104,7 +114,7 @@ describe('lock', function () {
     });
 
     it('Should be able to be constructed from a pre-existing connection', async () => {
-        const redis = new Redis(REDIS_CONFIG);
+        const redis = new Redis(REDIS_STANDALONE_CONFIG);
         let testExistingLock = new Lock({
             redis,
             namespace: 'testExistingLock'
@@ -159,6 +169,73 @@ describe('lock', function () {
                 new Lock({
                     namespace: 'testExistingLock'
                 })
-        ).to.throw(/must provide a redis/i);
+        ).to.throw(/must provide redis/i);
+    });
+});
+
+describeCluster('cluster mode', function () {
+    this.timeout(15000); //eslint-disable-line no-invalid-this
+
+    let testClusterLock;
+
+    beforeEach(done => {
+        testClusterLock = new Lock({
+            cluster: REDIS_CLUSTER_NODES,
+            namespace: `testClusterLock:${Date.now()}:${Math.random()}`
+        });
+        testClusterLock._redisConnection.on('error', () => false);
+        testClusterLock._redisSubscriber.on('error', () => false);
+        done();
+    });
+
+    afterEach(done => {
+        if (testClusterLock) {
+            if (testClusterLock._redisConnection) {
+                testClusterLock._redisConnection.disconnect();
+            }
+            if (testClusterLock._redisSubscriber) {
+                testClusterLock._redisSubscriber.disconnect();
+            }
+        }
+        done();
+    });
+
+    it('should acquire and release a lock in cluster mode', async () => {
+        const key = `${testKey}:cluster:acquire-release`;
+        const lock = await testClusterLock.acquireLock(key, 60 * 1000);
+        expect(lock.success).to.equal(true);
+        expect(lock.id).to.equal(key);
+        expect(lock.index).to.be.above(0);
+
+        const invalidLock = await testClusterLock.acquireLock(key, 60 * 1000);
+        expect(invalidLock.success).to.equal(false);
+
+        const release = await testClusterLock.releaseLock(lock);
+        expect(release.success).to.equal(true);
+        expect(release.result).to.equal('released');
+    });
+
+    it('should use hash-tagged release channel in cluster mode', () => {
+        expect(testClusterLock._releaseChannel).to.match(/\{ior4_[a-f0-9]{12}\}-release$/);
+    });
+
+    it('should wait and acquire after release via cluster pub/sub notification', async () => {
+        const key = `${testKey}:cluster:wait-release`;
+        const initialLock = await testClusterLock.acquireLock(key, 60 * 1000);
+        expect(initialLock.success).to.equal(true);
+
+        let start = Date.now();
+        setTimeout(() => {
+            testClusterLock.releaseLock(initialLock);
+        }, 500);
+
+        const newLock = await testClusterLock.waitAcquireLock(key, 60 * 100, 3000);
+        let elapsed = Date.now() - start;
+
+        expect(newLock.success).to.equal(true);
+        expect(elapsed).to.be.above(450);
+        expect(elapsed).to.be.below(4000);
+
+        await testClusterLock.releaseLock(newLock);
     });
 });

@@ -66,9 +66,52 @@ const Lock = require('ioredfour');
 })();
 ```
 
+## Redis Cluster mode
+
+`Lock` can also run against Redis Cluster.
+
+```js
+const Lock = require('ioredfour');
+
+const lock = new Lock({
+    namespace: 'mylock',
+    cluster: [
+        { host: '127.0.0.1', port: 7000 },
+        { host: '127.0.0.1', port: 7001 }
+    ],
+    // Optional ioredis Cluster options:
+    // https://github.com/redis/ioredis#cluster
+    clusterOptions: {
+        redisOptions: {
+            password: process.env.REDIS_PASSWORD
+        }
+    }
+});
+```
+
+Supported cluster configuration forms:
+
+-   `cluster: true` with `redis` set to cluster startup nodes array
+-   `cluster: [{ host, port }, ...]`
+-   `cluster: { nodes: [...], options: {...} }`
+-   Existing cluster client via `redis: existingClusterClient`
+
+When cluster mode is enabled, lock keys are automatically hash-tagged internally so Lua script keys are routed to the same Redis Cluster slot.
+Cluster mode also uses sharded pub/sub (`SSUBSCRIBE` and `SPUBLISH`) for release notifications.
+Sharded pub/sub requires Redis 7+.
+
 ## Contributing
 
 We welcome pull requests! Please lint your code.
+
+Test targets:
+
+-   `npm test` runs standalone Redis tests only
+-   `npm run test:cluster` runs Redis Cluster tests only
+-   `npm run test:all` runs both suites
+
+Standalone tests use `REDIS_STANDALONE_URL` (default: `redis://localhost:6379/11`) and should point to a non-cluster Redis instance.
+Cluster tests use nodes `localhost:7000`, `localhost:7001`, `localhost:7002`.
 
 ## Release History
 
