@@ -134,6 +134,18 @@ describeStandalone('lock', function () {
         await testExistingLock.releaseLock(newLock);
     });
 
+    it('Should support redisConnection alias for a pre-existing connection', async () => {
+        const redis = new Redis(REDIS_STANDALONE_CONFIG);
+        let testExistingLock = new Lock({
+            redisConnection: redis,
+            namespace: 'testExistingLockAlias'
+        });
+
+        const lock = await testExistingLock.acquireLock(testKey, 1 * 60 * 1000);
+        expect(lock.success).to.equal(true);
+        await testExistingLock.releaseLock(lock);
+    });
+
     it('also works with callbacks', done => {
         testLock.acquireLock(testKey, 1 * 1000, (err, initialLock) => {
             expect(err).to.not.be.ok;
@@ -170,6 +182,42 @@ describeStandalone('lock', function () {
                     namespace: 'testExistingLock'
                 })
         ).to.throw(/must provide redis/i);
+    });
+
+    it('should work with namespace ending in -release', async () => {
+        const redis = new Redis(REDIS_STANDALONE_CONFIG);
+        const lockWithReleaseNamespace = new Lock({
+            redis,
+            namespace: 'auto-release'
+        });
+        const key = `${testKey}:auto-release`;
+
+        const lock = await lockWithReleaseNamespace.acquireLock(key, 60 * 1000);
+        expect(lock.success).to.equal(true);
+
+        const release = await lockWithReleaseNamespace.releaseLock(lock);
+        expect(release.success).to.equal(true);
+        expect(release.result).to.equal('released');
+    });
+
+    it('should mark replication failure and release lock when minReplications is too high', async () => {
+        const redis = new Redis(REDIS_STANDALONE_CONFIG);
+        const replicationLock = new Lock({
+            redis,
+            namespace: 'replicationFailure',
+            minReplications: 999,
+            replicationTimeout: 10
+        });
+        const key = `${testKey}:replication-failure`;
+
+        const failedLock = await replicationLock.acquireLock(key, 60 * 1000);
+        expect(failedLock.success).to.equal(false);
+        expect(failedLock.replicationFailure).to.equal(true);
+
+        const nextLock = await replicationLock.acquireLock(key, 60 * 1000);
+        expect(nextLock.success).to.equal(true);
+
+        await replicationLock.releaseLock(nextLock);
     });
 });
 
@@ -219,6 +267,41 @@ describeCluster('cluster mode', function () {
         expect(testClusterLock._releaseChannel).to.match(/\{ior4_[a-f0-9]{12}\}-release$/);
     });
 
+    it('should apply clusterOptions when cluster is provided as an array', () => {
+        const lockWithOptions = new Lock({
+            cluster: REDIS_CLUSTER_NODES,
+            clusterOptions: {
+                slotsRefreshTimeout: 4321
+            },
+            namespace: `clusterOptionsArray:${Date.now()}:${Math.random()}`
+        });
+        lockWithOptions._redisConnection.on('error', () => false);
+        lockWithOptions._redisSubscriber.on('error', () => false);
+
+        expect(lockWithOptions._redisConnection.options.slotsRefreshTimeout).to.equal(4321);
+
+        lockWithOptions._redisConnection.disconnect();
+        lockWithOptions._redisSubscriber.disconnect();
+    });
+
+    it('should support pre-existing cluster redisConnection by duplicating with sharded subscribers', () => {
+        const clusterConnection = new Redis.Cluster(REDIS_CLUSTER_NODES);
+        clusterConnection.on('error', () => false);
+
+        let lock = new Lock({
+            redisConnection: clusterConnection,
+            namespace: `clusterPreExisting:${Date.now()}:${Math.random()}`
+        });
+        lock._redisSubscriber.on('error', () => false);
+
+        expect(lock._clusterMode).to.equal(true);
+        expect(lock._redisSubscriber.options.shardedSubscribers).to.equal(true);
+        expect(lock._redisSubscriber).to.not.equal(clusterConnection);
+
+        lock._redisSubscriber.disconnect();
+        clusterConnection.disconnect();
+    });
+
     it('should wait and acquire after release via cluster pub/sub notification', async () => {
         const key = `${testKey}:cluster:wait-release`;
         const initialLock = await testClusterLock.acquireLock(key, 60 * 1000);
@@ -237,5 +320,87 @@ describeCluster('cluster mode', function () {
         expect(elapsed).to.be.below(4000);
 
         await testClusterLock.releaseLock(newLock);
+    });
+
+    it('should extend a lock in cluster mode', async () => {
+        const key = `${testKey}:cluster:extend`;
+        const initialLock = await testClusterLock.acquireLock(key, 700);
+        expect(initialLock.success).to.equal(true);
+
+        const extended = await testClusterLock.extendLock(initialLock, 3000);
+        expect(extended.success).to.equal(true);
+        expect(extended.ttl).to.equal(3000);
+
+        const invalidLock = await testClusterLock.acquireLock(key, 60 * 1000);
+        expect(invalidLock.success).to.equal(false);
+
+        await testClusterLock.releaseLock(initialLock);
+    });
+
+    it('should report replication failure when minReplications is too high in cluster mode', async () => {
+        const highReplicationClusterLock = new Lock({
+            cluster: REDIS_CLUSTER_NODES,
+            namespace: `testClusterReplication:${Date.now()}:${Math.random()}`,
+            minReplications: 999,
+            replicationTimeout: 20
+        });
+        highReplicationClusterLock._redisConnection.on('error', () => false);
+        highReplicationClusterLock._redisSubscriber.on('error', () => false);
+
+        const key = `${testKey}:cluster:replication-failure`;
+        const failedLock = await highReplicationClusterLock.acquireLock(key, 60 * 1000);
+
+        expect(failedLock.success).to.equal(false);
+        expect(failedLock.replicationFailure).to.equal(true);
+
+        highReplicationClusterLock._redisConnection.disconnect();
+        highReplicationClusterLock._redisSubscriber.disconnect();
+    });
+
+    it('should handle replication checks in cluster mode', async () => {
+        const namespace = `testClusterReplicationGeneral:${Date.now()}:${Math.random()}`;
+        const replicationClusterLock = new Lock({
+            cluster: REDIS_CLUSTER_NODES,
+            namespace,
+            minReplications: 10,
+            replicationTimeout: 200
+        });
+        replicationClusterLock._redisConnection.on('error', () => false);
+        replicationClusterLock._redisSubscriber.on('error', () => false);
+
+        const key = `${testKey}:cluster:replication-general`;
+        let verificationLock;
+        try {
+            const lock = await replicationClusterLock.acquireLock(key, 60 * 1000);
+            expect(lock.id).to.equal(key);
+            expect(lock.index).to.be.a('number');
+            expect(lock.ttl).to.be.a('number');
+
+            if (lock.success) {
+                expect(lock.replicationFailure).to.not.equal(true);
+                const release = await replicationClusterLock.releaseLock(lock);
+                expect(release.success).to.equal(true);
+            } else {
+                expect(lock.replicationFailure).to.equal(true);
+                verificationLock = new Lock({
+                    cluster: REDIS_CLUSTER_NODES,
+                    namespace,
+                    minReplications: 0
+                });
+                verificationLock._redisConnection.on('error', () => false);
+                verificationLock._redisSubscriber.on('error', () => false);
+
+                const retryLock = await verificationLock.acquireLock(key, 60 * 1000);
+                expect(retryLock.success).to.equal(true);
+                await verificationLock.releaseLock(retryLock);
+            }
+        } finally {
+            if (verificationLock) {
+                verificationLock._redisConnection.disconnect();
+                verificationLock._redisSubscriber.disconnect();
+            }
+            replicationClusterLock._redisConnection.disconnect();
+            replicationClusterLock._redisSubscriber.disconnect();
+        }
     });
 });

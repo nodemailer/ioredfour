@@ -91,14 +91,15 @@ const lock = new Lock({
 
 Supported cluster configuration forms:
 
--   `cluster: true` with `redis` set to cluster startup nodes array
+-   `cluster: true` with `redis` or `redisConnection` set to cluster startup nodes array
 -   `cluster: [{ host, port }, ...]`
 -   `cluster: { nodes: [...], options: {...} }`
--   Existing cluster client via `redis: existingClusterClient`
+-   Existing cluster client via `redis` or `redisConnection`
 
 When cluster mode is enabled, lock keys are automatically hash-tagged internally so Lua script keys are routed to the same Redis Cluster slot.
 Cluster mode also uses sharded pub/sub (`SSUBSCRIBE` and `SPUBLISH`) for release notifications.
 Sharded pub/sub requires Redis 7+.
+If sharded pub/sub commands are unavailable, lock initialization fails with a compatibility error.
 
 ## Contributing
 
