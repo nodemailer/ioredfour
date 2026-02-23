@@ -362,7 +362,7 @@ describeCluster('cluster mode', function () {
         const replicationClusterLock = new Lock({
             cluster: REDIS_CLUSTER_NODES,
             namespace,
-            minReplications: 10,
+            minReplications: 1,
             replicationTimeout: 200
         });
         replicationClusterLock._redisConnection.on('error', () => false);
