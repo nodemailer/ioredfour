@@ -1,6 +1,6 @@
 ## ioredfour
 
-> Originally forked from **[redfour](https://www.npmjs.com/package/redfour)**. Main difference being that redfour uses [node_redis](https://www.npmjs.com/package/redis) + [node-redis-scripty](https://www.npmjs.com/package/node-redis-scripty) while ioredfour uses [ioredis](https://www.npmjs.com/package/ioredis).
+> Originally forked from **[redfour](https://www.npmjs.com/package/redfour)**. Main difference being that redfour uses [node_redis](https://www.npmjs.com/package/redis) + [node-redis-scripty](https://www.npmjs.com/package/node-redis-scripty) while ioredfour uses [ioredis](https://www.npmjs.com/package/ioredis). It also supports Redis Cluster mode.
 
 ## Install
 
@@ -86,6 +86,26 @@ const lock = new Lock({
             password: process.env.REDIS_PASSWORD
         }
     }
+});
+```
+
+Using an existing `ioredis` cluster connection:
+
+```js
+const Redis = require('ioredis');
+const Lock = require('ioredfour');
+
+const cluster = new Redis.Cluster([
+    { host: '127.0.0.1', port: 7000 },
+    { host: '127.0.0.1', port: 7001 },
+    { host: '127.0.0.1', port: 7002 }
+]);
+
+const lock = new Lock({
+    // `redisConnection` is also supported as an alias:
+    // redisConnection: cluster,
+    redis: cluster,
+    namespace: 'mylock'
 });
 ```
 
