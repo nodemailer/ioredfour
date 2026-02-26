@@ -1,6 +1,6 @@
 {
     "name": "ioredfour",
-    "version": "1.3.0-ioredis-07",
+    "version": "1.4.0",
     "description": "A redis binary semaphore with some consistency",
     "main": "lib/ioredfour.js",
     "scripts": {
