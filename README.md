@@ -111,10 +111,10 @@ const lock = new Lock({
 
 Supported cluster configuration forms:
 
--   `cluster: true` with `redis` or `redisConnection` set to cluster startup nodes array
--   `cluster: [{ host, port }, ...]`
--   `cluster: { nodes: [...], options: {...} }`
--   Existing cluster client via `redis` or `redisConnection`
+- `cluster: true` with `redis` or `redisConnection` set to cluster startup nodes array
+- `cluster: [{ host, port }, ...]`
+- `cluster: { nodes: [...], options: {...} }`
+- Existing cluster client via `redis` or `redisConnection`
 
 When cluster mode is enabled, lock keys are automatically hash-tagged internally so Lua script keys are routed to the same Redis Cluster slot.
 Cluster mode also uses sharded pub/sub (`SSUBSCRIBE` and `SPUBLISH`) for release notifications.
@@ -127,21 +127,21 @@ We welcome pull requests! Please lint your code.
 
 Test targets:
 
--   `npm test` runs standalone Redis tests only
--   `npm run test:cluster` runs Redis Cluster tests only
--   `npm run test:all` runs both suites
+- `npm test` runs standalone Redis tests only
+- `npm run test:cluster` runs Redis Cluster tests only
+- `npm run test:all` runs both suites
 
 Standalone tests use `REDIS_STANDALONE_URL` (default: `redis://localhost:6379/11`) and should point to a non-cluster Redis instance.
 Cluster tests use nodes `localhost:7000`, `localhost:7001`, `localhost:7002`.
 
 ## Release History
 
--   1.1.0 add Lock.extend, promisified interface, check for replication
--   1.0.2-ioredis Forked from redfour and switch node_redis with ioredis
--   1.0.2 Don't use `instanceof` to determine if the `redis` constructor option is of
-    type `redis.RedisClient`.
--   1.0.1 Fix issue where you could only pass in a Redis connection URI.
--   1.0.0 Initial release.
+- 1.1.0 add Lock.extend, promisified interface, check for replication
+- 1.0.2-ioredis Forked from redfour and switch node_redis with ioredis
+- 1.0.2 Don't use `instanceof` to determine if the `redis` constructor option is of
+  type `redis.RedisClient`.
+- 1.0.1 Fix issue where you could only pass in a Redis connection URI.
+- 1.0.0 Initial release.
 
 ## Etymology
 

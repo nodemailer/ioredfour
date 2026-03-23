@@ -8,10 +8,16 @@ ioredfour is a Redis-based distributed lock (binary semaphore) library for Node.
 
 ## Commands
 
+- **Format**: `npm run format` (prettier)
+- **Lint**: `npm run lint` (eslint)
 - **Lint + Test**: `npm test` (runs Grunt: eslint then mocha)
 - **Update dependencies**: `npm run update` (removes node_modules, runs ncu -u, reinstalls)
 
 There is no build step. There is no way to run a single test without modifying the Gruntfile.
+
+## Commits
+
+Use [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `chore:`). This is required because release-please uses commit messages to automate versioning and npm publishing.
 
 ## Architecture
 
@@ -20,6 +26,7 @@ There is no build step. There is no way to run a single test without modifying t
 **lib/scripts.js** — Three Lua scripts (acquire, extend, release) that run atomically in Redis. These are registered as custom Redis commands with namespace-hashed names to avoid collisions.
 
 Key design choices:
+
 - Lock indices (incrementing counters) prevent stale holders from interfering (ABA problem)
 - Pub/Sub notifications allow efficient waiting with hybrid polling/subscribe approach
 - Optional `WAIT` command support for replication consistency across Redis replicas

@@ -7,6 +7,8 @@
         "test": "TEST_TARGET=standalone grunt",
         "test:cluster": "TEST_TARGET=cluster grunt",
         "test:all": "TEST_TARGET=all grunt",
+        "format": "prettier --write .",
+        "lint": "eslint .",
         "update": "rm -rf node_modules package-lock.json && ncu -u && npm install"
     },
     "repository": {
@@ -34,7 +36,8 @@
         "grunt-cli": "1.5.0",
         "grunt-eslint": "26.0.0",
         "grunt-mocha-test": "0.13.3",
-        "mocha": "11.7.5"
+        "mocha": "11.7.5",
+        "prettier": "^3.8.1"
     },
     "dependencies": {
         "ioredis": "5.10.1"

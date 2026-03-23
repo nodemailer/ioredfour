@@ -214,10 +214,15 @@ describeStandalone('lock', function () {
         expect(failedLock.success).to.equal(false);
         expect(failedLock.replicationFailure).to.equal(true);
 
-        const nextLock = await replicationLock.acquireLock(key, 60 * 1000);
+        // Use a lock without minReplications to verify the failed lock was auto-released
+        const verifyLock = new Lock({
+            redis,
+            namespace: 'replicationFailure'
+        });
+        const nextLock = await verifyLock.acquireLock(key, 60 * 1000);
         expect(nextLock.success).to.equal(true);
 
-        await replicationLock.releaseLock(nextLock);
+        await verifyLock.releaseLock(nextLock);
     });
 });
 
