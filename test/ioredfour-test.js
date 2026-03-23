@@ -223,6 +223,67 @@ describeStandalone('lock', function () {
         expect(nextLock.success).to.equal(true);
 
         await verifyLock.releaseLock(nextLock);
+        redis.disconnect();
+    });
+
+    it('should retry replication and return failure after deadline expires', async () => {
+        const redis = new Redis(REDIS_STANDALONE_CONFIG);
+        const replicationLock = new Lock({
+            redis,
+            namespace: 'replicationRetry',
+            minReplications: 1,
+            replicationTimeout: 200
+        });
+        const key = `${testKey}:replication-retry`;
+
+        const failedLock = await replicationLock.acquireLock(key, 2000);
+        expect(failedLock.success).to.equal(false);
+        expect(failedLock.replicationFailure).to.equal(true);
+
+        // Verify lock is cleaned up after retries
+        const verifyLock = new Lock({
+            redis,
+            namespace: 'replicationRetry'
+        });
+        const nextLock = await verifyLock.acquireLock(key, 60 * 1000);
+        expect(nextLock.success).to.equal(true);
+
+        await verifyLock.releaseLock(nextLock);
+        redis.disconnect();
+    });
+
+    it('should reject when TTL is too short relative to replicationTimeout', async () => {
+        const redis = new Redis(REDIS_STANDALONE_CONFIG);
+        const lock = new Lock({
+            redis,
+            namespace: 'ttlValidation',
+            minReplications: 1,
+            replicationTimeout: 1000
+        });
+        try {
+            await lock.acquireLock(`${testKey}:ttl-short`, 1000);
+            expect.fail('should have thrown');
+        } catch (err) {
+            expect(err.message).to.match(/must be at least 1\.5x/);
+        } finally {
+            redis.disconnect();
+        }
+    });
+
+    it('should pass TTL validation error to callback', done => {
+        const redis = new Redis(REDIS_STANDALONE_CONFIG);
+        const lock = new Lock({
+            redis,
+            namespace: 'ttlValidationCb',
+            minReplications: 1,
+            replicationTimeout: 1000
+        });
+        lock.acquireLock(`${testKey}:ttl-cb`, 500, err => {
+            expect(err).to.be.ok;
+            expect(err.message).to.match(/must be at least 1\.5x/);
+            redis.disconnect();
+            done();
+        });
     });
 });
 
