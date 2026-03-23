@@ -15,6 +15,10 @@ ioredfour is a Redis-based distributed lock (binary semaphore) library for Node.
 
 There is no build step. There is no way to run a single test without modifying the Gruntfile.
 
+## Releases
+
+Releases are managed by the release-please GitHub Action. Never modify the `version` field in `package.json` or create git version tags manually — release-please handles both automatically based on conventional commit messages.
+
 ## Commits
 
 Use [Conventional Commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `chore:`). This is required because release-please uses commit messages to automate versioning and npm publishing.
@@ -33,7 +37,7 @@ Key design choices:
 
 ## Testing
 
-Tests require a running Redis instance. Set `REDIS_URL` env var or it defaults to `redis://localhost:6379/11`. Tests use mocha/chai with a 10-second timeout.
+Tests require a running Redis instance. Set `REDIS_STANDALONE_URL` env var or it defaults to `redis://localhost:6379/11`. Tests use mocha/chai with a 10-second timeout.
 
 ## Code Style
 

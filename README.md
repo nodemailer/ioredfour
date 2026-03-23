@@ -4,10 +4,8 @@
 
 ## Install
 
-or
-
 ```sh
-npm install ioredfour --save
+npm install ioredfour
 ```
 
 ## Usage example
@@ -25,7 +23,8 @@ const Lock = require('ioredfour');
         namespace: 'mylock',
         // Don't consider the lock owned until writes have been replicated at least this many times
         minReplications: 1,
-        // Wait at most this many miliseconds for replication
+        // Wait at most this many milliseconds for replication.
+        // Note: lock TTL must be at least 1.5x replicationTimeout.
         replicationTimeout: 500
     });
     const id = Math.random();
@@ -136,13 +135,8 @@ Cluster tests use nodes `localhost:7000`, `localhost:7001`, `localhost:7002`.
 
 ## Release History
 
-- 1.1.0 add Lock.extend, promisified interface, check for replication
-- 1.0.2-ioredis Forked from redfour and switch node_redis with ioredis
-- 1.0.2 Don't use `instanceof` to determine if the `redis` constructor option is of
-  type `redis.RedisClient`.
-- 1.0.1 Fix issue where you could only pass in a Redis connection URI.
-- 1.0.0 Initial release.
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## Etymology
 
-Shortened (and easier to pronouce) version of "Redis Semaphore"
+Shortened (and easier to pronounce) version of "Redis Semaphore"

@@ -23,6 +23,12 @@
     ],
     "author": "Mixmax <hello@mixmax.com> (https://mixmax.com/), Daniel Reus (https://github.com/dreusel)",
     "license": "MIT",
+    "files": [
+        "lib/",
+        "LICENSE",
+        "README.md",
+        "CHANGELOG.md"
+    ],
     "bugs": {
         "url": "https://github.com/nodemailer/ioredfour/issues"
     },
