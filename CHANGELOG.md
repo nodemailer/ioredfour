@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/nodemailer/ioredfour/compare/v1.4.0...v1.4.1) (2026-03-23)
+
+
+### Bug Fixes
+
+* improve acquireLock replication retry reliability ([5050a87](https://github.com/nodemailer/ioredfour/commit/5050a87977700b17f5b60e3d68ae833f7fe3cdbb))
+
 ## [1.4.0](https://github.com/nodemailer/ioredfour/compare/v1.3.0...v1.4.0) (2026-02-25)
 
 ### Features
