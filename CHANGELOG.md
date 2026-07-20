@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/nodemailer/ioredfour/compare/v1.4.1...v1.4.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **deps:** update ioredis to 5.11.1 ([297add3](https://github.com/nodemailer/ioredfour/commit/297add3cc2cfc73da86b682321efa459f7b4cc9d))
+
 ## [1.4.1](https://github.com/nodemailer/ioredfour/compare/v1.4.0...v1.4.1) (2026-03-23)
 
 
