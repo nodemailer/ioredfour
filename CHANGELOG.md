@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.3](https://github.com/nodemailer/ioredfour/compare/v1.4.2...v1.4.3) (2026-08-24)
+
+
+### Bug Fixes
+
+* **deps:** move to ioredis 6 ([59e8038](https://github.com/nodemailer/ioredfour/commit/59e8038c4646b5c8b369938641b172f18563aadf))
+
 ## [1.4.2](https://github.com/nodemailer/ioredfour/compare/v1.4.1...v1.4.2) (2026-07-20)
 
 
