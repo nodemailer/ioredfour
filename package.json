@@ -35,17 +35,17 @@
     "homepage": "https://github.com/nodemailer/ioredfour#readme",
     "devDependencies": {
         "chai": "4.3.10",
-        "eslint": "10.8.0",
+        "eslint": "10.9.0",
         "eslint-config-nodemailer": "1.2.0",
         "eslint-config-prettier": "10.1.8",
-        "grunt": "1.6.2",
+        "grunt": "1.6.3",
         "grunt-cli": "1.5.0",
         "grunt-eslint": "26.0.0",
         "grunt-mocha-test": "0.13.3",
-        "mocha": "11.7.6",
+        "mocha": "11.8.0",
         "prettier": "^3.9.6"
     },
     "dependencies": {
-        "ioredis": "5.11.1"
+        "ioredis": "6.0.0"
     }
 }
