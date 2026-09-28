@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.4](https://github.com/nodemailer/ioredfour/compare/v1.4.3...v1.4.4) (2026-09-28)
+
+
+### Bug Fixes
+
+* handle a refused subscription, validate lock TTLs, and pass the channel as a script argument ([174ebbe](https://github.com/nodemailer/ioredfour/commit/174ebbe8975298e441d31a490681306a0ca72709))
+
 ## [1.4.3](https://github.com/nodemailer/ioredfour/compare/v1.4.2...v1.4.3) (2026-08-24)
 
 
