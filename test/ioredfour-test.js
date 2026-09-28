@@ -5,6 +5,7 @@
 const Lock = require('../lib/ioredfour.js');
 const expect = require('chai').expect;
 const Redis = require('ioredis');
+const events = require('events');
 
 const REDIS_STANDALONE_CONFIG = process.env.REDIS_STANDALONE_URL || 'redis://localhost:6379/11';
 const REDIS_CLUSTER_NODES = [
@@ -110,6 +111,8 @@ describeStandalone('lock', function () {
         const newLock = await testLock.waitAcquireLock(testKey, 1 * 60 * 1000, 1500);
         expect(newLock.success).to.equal(false);
         expect(Date.now() - start).to.be.above(1450);
+        // A waiter that gave up must not leave its release listener behind
+        expect(testLock._subscribers.listenerCount(testLock._lockKey(testKey))).to.equal(0);
         await testLock.releaseLock(initialLock);
     });
 
@@ -284,6 +287,164 @@ describeStandalone('lock', function () {
             redis.disconnect();
             done();
         });
+    });
+});
+
+describeStandalone('lock hardening', function () {
+    this.timeout(10000); //eslint-disable-line no-invalid-this
+
+    let key;
+    let connections;
+
+    beforeEach(() => {
+        key = `${testKey}:hardening:${Math.random()}`;
+        connections = [];
+    });
+
+    afterEach(async () => {
+        for (let connection of connections) {
+            await connection.close();
+        }
+    });
+
+    let makeLock = options => {
+        let lock = new Lock(options);
+        connections.push(lock);
+        return lock;
+    };
+
+    let makeRedis = opts => {
+        let redis = new Redis(REDIS_STANDALONE_CONFIG, opts);
+        connections.push({ close: () => redis.quit() });
+        return redis;
+    };
+
+    // Resolves to the rejection reason, or undefined when the promise fulfilled
+    let rejection = p =>
+        p.then(
+            () => undefined,
+            err => err
+        );
+
+    it('should keep working when the release channel subscription is refused', async () => {
+        const redis = makeRedis();
+
+        // Simulates a Redis ACL user without channel permissions (NOPERM on SUBSCRIBE)
+        const originalDuplicate = redis.duplicate.bind(redis);
+        redis.duplicate = (...args) => {
+            const subscriber = originalDuplicate(...args);
+            subscriber.subscribe = () => Promise.reject(new Error("NOPERM User has no permissions to access the 'x' channel"));
+            return subscriber;
+        };
+
+        const unhandled = [];
+        const onUnhandled = err => unhandled.push(err);
+        process.on('unhandledRejection', onUnhandled);
+
+        try {
+            const lock = makeLock({ redis, namespace: 'testNoPubSub' });
+
+            const [error] = await events.once(lock, 'error');
+            expect(error.message).to.match(/NOPERM/);
+            expect(lock._pubsubRefused).to.equal(true);
+
+            const first = await lock.acquireLock(key, 60 * 1000);
+            expect(first.success).to.equal(true);
+
+            // Without notifications the waiter polls instead of sleeping out the 60s TTL
+            setTimeout(() => lock.releaseLock(first), 300);
+            const start = Date.now();
+            const second = await lock.waitAcquireLock(key, 60 * 1000, 5000);
+            expect(second.success).to.equal(true);
+            expect(Date.now() - start).to.be.below(2500);
+
+            const release = await lock.releaseLock(second);
+            expect(release.success).to.equal(true);
+
+            await new Promise(resolve => setImmediate(resolve));
+            expect(unhandled).to.deep.equal([]);
+        } finally {
+            process.removeListener('unhandledRejection', onUnhandled);
+        }
+    });
+
+    it('should reject a missing or non-integer TTL without leaving a lock behind', async () => {
+        const redis = makeRedis();
+        const lock = makeLock({ redis, namespace: 'testTtlValidation' });
+
+        for (let ttl of [undefined, null, 1.5, '1000', 0, -5, NaN]) {
+            const error = await rejection(lock.acquireLock(key, ttl));
+            expect(error, `ttl ${ttl}`).to.be.an.instanceof(TypeError);
+            expect(error.message).to.match(/positive integer/);
+            expect(await redis.exists(lock._lockKey(key))).to.equal(0);
+        }
+
+        expect(await rejection(lock.waitAcquireLock(key, undefined, 100))).to.be.an.instanceof(TypeError);
+
+        const acquired = await lock.acquireLock(key, 60 * 1000);
+        expect(await rejection(lock.extendLock(acquired, 2.5))).to.be.an.instanceof(TypeError);
+        expect(await redis.pttl(lock._lockKey(key))).to.be.above(50 * 1000);
+        await lock.releaseLock(acquired);
+    });
+
+    it('should not create a lock key without expiry when the script gets a bad TTL', async () => {
+        const redis = makeRedis();
+        const lock = makeLock({ redis, namespace: 'testTtlScript' });
+
+        // Bypasses the JavaScript validation to exercise the Lua guard itself
+        for (let ttl of ['', 'abc', '1.5', '0']) {
+            const error = await rejection(redis[lock.fn('acquireLock')](lock._lockKey(key), lock._indexKey(), ttl));
+            expect(error, `ttl ${JSON.stringify(ttl)}`).to.be.ok;
+            expect(await redis.exists(lock._lockKey(key))).to.equal(0);
+        }
+    });
+
+    for (let { title, redisOptions, namespace } of [
+        // Before the keyPrefix fix the waiter only woke up when its 3s wait ran out, and then failed
+        { title: 'when the client uses a keyPrefix', redisOptions: { keyPrefix: 'ior4prefix:' }, namespace: 'testKeyPrefix' },
+        { title: 'for a namespace containing quotes and backslashes', redisOptions: undefined, namespace: 'test"quoted\\ns' }
+    ]) {
+        it(`should deliver release notifications ${title}`, async () => {
+            const redis = makeRedis(redisOptions);
+            const lock = makeLock({ redis, namespace });
+
+            const first = await lock.acquireLock(key, 60 * 1000);
+            expect(first.success).to.equal(true);
+
+            setTimeout(() => lock.releaseLock(first), 300);
+            const start = Date.now();
+            const second = await lock.waitAcquireLock(key, 60 * 1000, 3000);
+            expect(second.success).to.equal(true);
+            expect(Date.now() - start).to.be.below(1500);
+
+            const release = await lock.releaseLock(second);
+            expect(release.success).to.equal(true);
+            expect(release.result).to.equal('released');
+        });
+    }
+
+    it('should close the duplicated subscriber and leave the caller connection open', async () => {
+        const redis = makeRedis();
+        const lock = new Lock({ redis, namespace: 'testClose' });
+
+        const errors = [];
+        lock.on('error', err => errors.push(err));
+        lock._redisSubscriber.emit('error', new Error('subscriber failure'));
+        expect(errors.map(err => err.message)).to.deep.equal(['subscriber failure']);
+
+        await lock.close();
+        expect(lock._redisSubscriber.status).to.equal('end');
+        expect(await redis.ping()).to.equal('PONG');
+    });
+
+    it('should close both connections when it opened them itself', async () => {
+        const lock = new Lock({ redis: REDIS_STANDALONE_CONFIG, namespace: 'testCloseOwned' });
+        const acquired = await lock.acquireLock(key, 1000);
+        await lock.releaseLock(acquired);
+
+        await lock.close();
+        expect(lock._redisSubscriber.status).to.equal('end');
+        expect(lock._redisConnection.status).to.equal('end');
     });
 });
 

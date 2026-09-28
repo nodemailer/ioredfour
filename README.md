@@ -65,6 +65,23 @@ const Lock = require('ioredfour');
 })();
 ```
 
+## Errors and shutdown
+
+`Lock` is an `EventEmitter`. Connection errors from the Pub/Sub subscriber connection (and from the command connection when the `Lock` opened it itself) are emitted as `error` events, so attach a listener if you want to log them. Without a listener they are dropped instead of being printed by ioredis.
+
+If the release channel subscription is refused, for example a Redis ACL user without channel permissions (`NOPERM`), the refusal is emitted as an `error` event and the lock keeps working: waiters poll for the lock about once a second instead of waiting for a release notification.
+
+Lock TTLs must be positive integers in milliseconds. `acquireLock`, `extendLock` and `waitAcquireLock` reject any other value with a `TypeError`.
+
+Call `close()` to shut the lock down. It closes the subscriber connection, and the command connection too when the `Lock` created it from a connection string or options object. A Redis instance you passed in is left open.
+
+```js
+lock.on('error', err => console.error('lock connection error', err));
+
+// on shutdown
+await lock.close();
+```
+
 ## Redis Cluster mode
 
 `Lock` can also run against Redis Cluster.
