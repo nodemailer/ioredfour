@@ -7,11 +7,11 @@ const Redis = require('ioredis');
 const events = require('events');
 
 const REDIS_STANDALONE_CONFIG = process.env.REDIS_STANDALONE_URL || 'redis://localhost:6379/11';
-const REDIS_CLUSTER_NODES = [
-    { host: 'localhost', port: 7000 },
-    { host: 'localhost', port: 7001 },
-    { host: 'localhost', port: 7002 }
-];
+// Comma-separated host:port list, matching what scripts/redis-cluster.sh starts by default
+const REDIS_CLUSTER_NODES = (process.env.REDIS_CLUSTER_NODES || '127.0.0.1:7100,127.0.0.1:7101,127.0.0.1:7102').split(',').map(node => {
+    const [host, port] = node.trim().split(':');
+    return { host, port: Number(port) };
+});
 const TEST_TARGET = process.env.TEST_TARGET || 'standalone';
 const RUN_STANDALONE = TEST_TARGET === 'standalone' || TEST_TARGET === 'all';
 const RUN_CLUSTER = TEST_TARGET === 'cluster' || TEST_TARGET === 'all';

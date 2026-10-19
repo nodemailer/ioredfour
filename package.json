@@ -7,6 +7,8 @@
         "test": "node --test --test-force-exit test/*-test.js",
         "test:cjs": "NODE_OPTIONS=--no-experimental-require-module npm test",
         "test:cluster": "TEST_TARGET=cluster node --test --test-force-exit test/*-test.js",
+        "cluster:up": "scripts/redis-cluster.sh up",
+        "cluster:down": "scripts/redis-cluster.sh down",
         "test:all": "TEST_TARGET=all node --test --test-force-exit test/*-test.js",
         "test:coverage": "c8 npm test",
         "lint": "eslint .",
