@@ -1,9 +1,8 @@
-/* eslint no-unused-expressions:0 */
-
 'use strict';
 
+const { describe, it, beforeEach, afterEach } = require('node:test');
+const assert = require('node:assert/strict');
 const Lock = require('../lib/ioredfour.js');
-const expect = require('chai').expect;
 const Redis = require('ioredis');
 const events = require('events');
 
@@ -16,6 +15,9 @@ const REDIS_CLUSTER_NODES = [
 const TEST_TARGET = process.env.TEST_TARGET || 'standalone';
 const RUN_STANDALONE = TEST_TARGET === 'standalone' || TEST_TARGET === 'all';
 const RUN_CLUSTER = TEST_TARGET === 'cluster' || TEST_TARGET === 'all';
+// node:test applies a describe() timeout to the whole suite, so the per-test mocha timeouts are passed to each it()
+const TEST_OPTS = { timeout: 10000 };
+const CLUSTER_TEST_OPTS = { timeout: 15000 };
 const describeStandalone = RUN_STANDALONE ? describe : describe.skip;
 const describeCluster = RUN_CLUSTER ? describe : describe.skip;
 
@@ -23,12 +25,10 @@ const describeCluster = RUN_CLUSTER ? describe : describe.skip;
 // and testing keys were not immediately deleted (these expire automatically after a while)
 let testKey = 'TEST:' + Date.now();
 
-describeStandalone('lock', function () {
-    this.timeout(10000); //eslint-disable-line no-invalid-this
-
+describeStandalone('lock', () => {
     let testLock;
 
-    beforeEach(done => {
+    beforeEach((t, done) => {
         const redis = new Redis(REDIS_STANDALONE_CONFIG);
         testLock = new Lock({
             redis,
@@ -39,55 +39,55 @@ describeStandalone('lock', function () {
         done();
     });
 
-    it('should acquire and release a lock only with a valid index', async () => {
+    it('should acquire and release a lock only with a valid index', TEST_OPTS, async () => {
         const lock = await testLock.acquireLock(testKey, 60 * 100);
-        expect(lock.success).to.equal(true);
-        expect(lock.id).to.equal(testKey);
-        expect(lock.index).to.be.above(0);
+        assert.strictEqual(lock.success, true);
+        assert.strictEqual(lock.id, testKey);
+        assert.ok(lock.index > 0);
 
         const invalidLock = await testLock.acquireLock(testKey, 60 * 100);
-        expect(invalidLock.success).to.equal(false);
+        assert.strictEqual(invalidLock.success, false);
 
         const invalidRelease = await testLock.releaseLock({
             id: testKey,
             index: -10
         });
-        expect(invalidRelease.success).to.equal(false);
+        assert.strictEqual(invalidRelease.success, false);
 
         const release = await testLock.releaseLock(lock);
-        expect(release.success).to.equal(true);
+        assert.strictEqual(release.success, true);
     });
 
-    it('should wait and acquire a lock after releasing', async () => {
+    it('should wait and acquire a lock after releasing', TEST_OPTS, async () => {
         const initialLock = await testLock.acquireLock(testKey, 1 * 60 * 1000);
-        expect(initialLock.success).to.equal(true);
+        assert.strictEqual(initialLock.success, true);
 
         let start = Date.now();
         setTimeout(() => {
             testLock.releaseLock(initialLock);
         }, 1500);
         const newLock = await testLock.waitAcquireLock(testKey, 60 * 100, 3000);
-        expect(newLock.success).to.equal(true);
-        expect(Date.now() - start).to.be.above(1450);
+        assert.strictEqual(newLock.success, true);
+        assert.ok(Date.now() - start > 1450);
 
         await testLock.releaseLock(newLock);
     });
 
-    it('should wait and acquire a lock after expiring', async () => {
+    it('should wait and acquire a lock after expiring', TEST_OPTS, async () => {
         const initialLock = await testLock.acquireLock(testKey, 1.5 * 1000);
-        expect(initialLock.success).to.equal(true);
+        assert.strictEqual(initialLock.success, true);
 
         let start = Date.now();
         const newLock = await testLock.waitAcquireLock(testKey, 60 * 100, 3000);
-        expect(newLock.success).to.equal(true);
-        expect(Date.now() - start).to.be.above(1450);
+        assert.strictEqual(newLock.success, true);
+        assert.ok(Date.now() - start > 1450);
 
         await testLock.releaseLock(newLock);
     });
 
-    it('should wait and acquire a lock after extending', async () => {
+    it('should wait and acquire a lock after extending', TEST_OPTS, async () => {
         const initialLock = await testLock.acquireLock(testKey, 1 * 1000);
-        expect(initialLock.success).to.equal(true);
+        assert.strictEqual(initialLock.success, true);
         setTimeout(() => {
             testLock.extendLock(initialLock, 10000);
         }, 500);
@@ -97,26 +97,26 @@ describeStandalone('lock', function () {
 
         let start = Date.now();
         const newLock = await testLock.waitAcquireLock(testKey, 60 * 100, 3000);
-        expect(newLock.success).to.equal(true);
-        expect(Date.now() - start).to.be.above(1450);
+        assert.strictEqual(newLock.success, true);
+        assert.ok(Date.now() - start > 1450);
 
         await testLock.releaseLock(newLock);
     });
 
-    it('Should wait and not acquire a lock', async () => {
+    it('Should wait and not acquire a lock', TEST_OPTS, async () => {
         const initialLock = await testLock.acquireLock(testKey, 1 * 60 * 1000);
-        expect(initialLock.success).to.equal(true);
+        assert.strictEqual(initialLock.success, true);
 
         let start = Date.now();
         const newLock = await testLock.waitAcquireLock(testKey, 1 * 60 * 1000, 1500);
-        expect(newLock.success).to.equal(false);
-        expect(Date.now() - start).to.be.above(1450);
+        assert.strictEqual(newLock.success, false);
+        assert.ok(Date.now() - start > 1450);
         // A waiter that gave up must not leave its release listener behind
-        expect(testLock._subscribers.listenerCount(testLock._lockKey(testKey))).to.equal(0);
+        assert.strictEqual(testLock._subscribers.listenerCount(testLock._lockKey(testKey)), 0);
         await testLock.releaseLock(initialLock);
     });
 
-    it('Should be able to be constructed from a pre-existing connection', async () => {
+    it('Should be able to be constructed from a pre-existing connection', TEST_OPTS, async () => {
         const redis = new Redis(REDIS_STANDALONE_CONFIG);
         let testExistingLock = new Lock({
             redis,
@@ -124,20 +124,20 @@ describeStandalone('lock', function () {
         });
 
         const initialLock = await testExistingLock.acquireLock(testKey, 1 * 60 * 1000);
-        expect(initialLock.success).to.equal(true);
+        assert.strictEqual(initialLock.success, true);
         setTimeout(() => {
             testExistingLock.releaseLock(initialLock);
         }, 1500);
 
         let start = Date.now();
         const newLock = await testExistingLock.waitAcquireLock(testKey, 60 * 100, 3000);
-        expect(newLock.success).to.equal(true);
-        expect(Date.now() - start).to.be.above(1450);
+        assert.strictEqual(newLock.success, true);
+        assert.ok(Date.now() - start > 1450);
 
         await testExistingLock.releaseLock(newLock);
     });
 
-    it('Should support redisConnection alias for a pre-existing connection', async () => {
+    it('Should support redisConnection alias for a pre-existing connection', TEST_OPTS, async () => {
         const redis = new Redis(REDIS_STANDALONE_CONFIG);
         let testExistingLock = new Lock({
             redisConnection: redis,
@@ -145,49 +145,50 @@ describeStandalone('lock', function () {
         });
 
         const lock = await testExistingLock.acquireLock(testKey, 1 * 60 * 1000);
-        expect(lock.success).to.equal(true);
+        assert.strictEqual(lock.success, true);
         await testExistingLock.releaseLock(lock);
     });
 
-    it('also works with callbacks', done => {
+    it('also works with callbacks', TEST_OPTS, (t, done) => {
         testLock.acquireLock(testKey, 1 * 1000, (err, initialLock) => {
-            expect(err).to.not.be.ok;
-            expect(initialLock.success).to.equal(true);
+            assert.ok(!err);
+            assert.strictEqual(initialLock.success, true);
             setTimeout(() => {
                 testLock.extendLock(initialLock, 10000, err => {
-                    expect(err).to.not.be.ok;
+                    assert.ok(!err);
                 });
             }, 500);
             setTimeout(() => {
                 testLock.releaseLock(initialLock, err => {
-                    expect(err).to.not.be.ok;
+                    assert.ok(!err);
                 });
             }, 1500);
 
             let start = Date.now();
             testLock.waitAcquireLock(testKey, 60 * 100, 3000, (err, newLock) => {
-                expect(err).to.not.be.ok;
-                expect(newLock.success).to.equal(true);
-                expect(Date.now() - start).to.be.above(1450);
+                assert.ok(!err);
+                assert.strictEqual(newLock.success, true);
+                assert.ok(Date.now() - start > 1450);
 
                 testLock.releaseLock(newLock, err => {
-                    expect(err).to.not.be.ok;
+                    assert.ok(!err);
                     done();
                 });
             });
         });
     });
 
-    it('should throw if redis is not provided', () => {
-        expect(
+    it('should throw if redis is not provided', TEST_OPTS, () => {
+        assert.throws(
             () =>
                 new Lock({
                     namespace: 'testExistingLock'
-                })
-        ).to.throw(/must provide redis/i);
+                }),
+            /must provide redis/i
+        );
     });
 
-    it('should work with namespace ending in -release', async () => {
+    it('should work with namespace ending in -release', TEST_OPTS, async () => {
         const redis = new Redis(REDIS_STANDALONE_CONFIG);
         const lockWithReleaseNamespace = new Lock({
             redis,
@@ -196,14 +197,14 @@ describeStandalone('lock', function () {
         const key = `${testKey}:auto-release`;
 
         const lock = await lockWithReleaseNamespace.acquireLock(key, 60 * 1000);
-        expect(lock.success).to.equal(true);
+        assert.strictEqual(lock.success, true);
 
         const release = await lockWithReleaseNamespace.releaseLock(lock);
-        expect(release.success).to.equal(true);
-        expect(release.result).to.equal('released');
+        assert.strictEqual(release.success, true);
+        assert.strictEqual(release.result, 'released');
     });
 
-    it('should mark replication failure and release lock when minReplications is too high', async () => {
+    it('should mark replication failure and release lock when minReplications is too high', TEST_OPTS, async () => {
         const redis = new Redis(REDIS_STANDALONE_CONFIG);
         const replicationLock = new Lock({
             redis,
@@ -214,8 +215,8 @@ describeStandalone('lock', function () {
         const key = `${testKey}:replication-failure`;
 
         const failedLock = await replicationLock.acquireLock(key, 60 * 1000);
-        expect(failedLock.success).to.equal(false);
-        expect(failedLock.replicationFailure).to.equal(true);
+        assert.strictEqual(failedLock.success, false);
+        assert.strictEqual(failedLock.replicationFailure, true);
 
         // Use a lock without minReplications to verify the failed lock was auto-released
         const verifyLock = new Lock({
@@ -223,13 +224,13 @@ describeStandalone('lock', function () {
             namespace: 'replicationFailure'
         });
         const nextLock = await verifyLock.acquireLock(key, 60 * 1000);
-        expect(nextLock.success).to.equal(true);
+        assert.strictEqual(nextLock.success, true);
 
         await verifyLock.releaseLock(nextLock);
         redis.disconnect();
     });
 
-    it('should retry replication and return failure after deadline expires', async () => {
+    it('should retry replication and return failure after deadline expires', TEST_OPTS, async () => {
         const redis = new Redis(REDIS_STANDALONE_CONFIG);
         const replicationLock = new Lock({
             redis,
@@ -240,8 +241,8 @@ describeStandalone('lock', function () {
         const key = `${testKey}:replication-retry`;
 
         const failedLock = await replicationLock.acquireLock(key, 2000);
-        expect(failedLock.success).to.equal(false);
-        expect(failedLock.replicationFailure).to.equal(true);
+        assert.strictEqual(failedLock.success, false);
+        assert.strictEqual(failedLock.replicationFailure, true);
 
         // Verify lock is cleaned up after retries
         const verifyLock = new Lock({
@@ -249,13 +250,13 @@ describeStandalone('lock', function () {
             namespace: 'replicationRetry'
         });
         const nextLock = await verifyLock.acquireLock(key, 60 * 1000);
-        expect(nextLock.success).to.equal(true);
+        assert.strictEqual(nextLock.success, true);
 
         await verifyLock.releaseLock(nextLock);
         redis.disconnect();
     });
 
-    it('should reject when TTL is too short relative to replicationTimeout', async () => {
+    it('should reject when TTL is too short relative to replicationTimeout', TEST_OPTS, async () => {
         const redis = new Redis(REDIS_STANDALONE_CONFIG);
         const lock = new Lock({
             redis,
@@ -265,15 +266,15 @@ describeStandalone('lock', function () {
         });
         try {
             await lock.acquireLock(`${testKey}:ttl-short`, 1000);
-            expect.fail('should have thrown');
+            assert.fail('should have thrown');
         } catch (err) {
-            expect(err.message).to.match(/must be at least 1\.5x/);
+            assert.match(err.message, /must be at least 1\.5x/);
         } finally {
             redis.disconnect();
         }
     });
 
-    it('should pass TTL validation error to callback', done => {
+    it('should pass TTL validation error to callback', TEST_OPTS, (t, done) => {
         const redis = new Redis(REDIS_STANDALONE_CONFIG);
         const lock = new Lock({
             redis,
@@ -282,17 +283,15 @@ describeStandalone('lock', function () {
             replicationTimeout: 1000
         });
         lock.acquireLock(`${testKey}:ttl-cb`, 500, err => {
-            expect(err).to.be.ok;
-            expect(err.message).to.match(/must be at least 1\.5x/);
+            assert.ok(err);
+            assert.match(err.message, /must be at least 1\.5x/);
             redis.disconnect();
             done();
         });
     });
 });
 
-describeStandalone('lock hardening', function () {
-    this.timeout(10000); //eslint-disable-line no-invalid-this
-
+describeStandalone('lock hardening', () => {
     let key;
     let connections;
 
@@ -326,7 +325,7 @@ describeStandalone('lock hardening', function () {
             err => err
         );
 
-    it('should keep working when the release channel subscription is refused', async () => {
+    it('should keep working when the release channel subscription is refused', TEST_OPTS, async () => {
         const redis = makeRedis();
 
         // Simulates a Redis ACL user without channel permissions (NOPERM on SUBSCRIBE)
@@ -345,57 +344,57 @@ describeStandalone('lock hardening', function () {
             const lock = makeLock({ redis, namespace: 'testNoPubSub' });
 
             const [error] = await events.once(lock, 'error');
-            expect(error.message).to.match(/NOPERM/);
-            expect(lock._pubsubRefused).to.equal(true);
+            assert.match(error.message, /NOPERM/);
+            assert.strictEqual(lock._pubsubRefused, true);
 
             const first = await lock.acquireLock(key, 60 * 1000);
-            expect(first.success).to.equal(true);
+            assert.strictEqual(first.success, true);
 
             // Without notifications the waiter polls instead of sleeping out the 60s TTL
             setTimeout(() => lock.releaseLock(first), 300);
             const start = Date.now();
             const second = await lock.waitAcquireLock(key, 60 * 1000, 5000);
-            expect(second.success).to.equal(true);
-            expect(Date.now() - start).to.be.below(2500);
+            assert.strictEqual(second.success, true);
+            assert.ok(Date.now() - start < 2500);
 
             const release = await lock.releaseLock(second);
-            expect(release.success).to.equal(true);
+            assert.strictEqual(release.success, true);
 
             await new Promise(resolve => setImmediate(resolve));
-            expect(unhandled).to.deep.equal([]);
+            assert.deepStrictEqual(unhandled, []);
         } finally {
             process.removeListener('unhandledRejection', onUnhandled);
         }
     });
 
-    it('should reject a missing or non-integer TTL without leaving a lock behind', async () => {
+    it('should reject a missing or non-integer TTL without leaving a lock behind', TEST_OPTS, async () => {
         const redis = makeRedis();
         const lock = makeLock({ redis, namespace: 'testTtlValidation' });
 
         for (let ttl of [undefined, null, 1.5, '1000', 0, -5, NaN]) {
             const error = await rejection(lock.acquireLock(key, ttl));
-            expect(error, `ttl ${ttl}`).to.be.an.instanceof(TypeError);
-            expect(error.message).to.match(/positive integer/);
-            expect(await redis.exists(lock._lockKey(key))).to.equal(0);
+            assert.ok(error instanceof TypeError, `ttl ${ttl}`);
+            assert.match(error.message, /positive integer/);
+            assert.strictEqual(await redis.exists(lock._lockKey(key)), 0);
         }
 
-        expect(await rejection(lock.waitAcquireLock(key, undefined, 100))).to.be.an.instanceof(TypeError);
+        assert.ok((await rejection(lock.waitAcquireLock(key, undefined, 100))) instanceof TypeError);
 
         const acquired = await lock.acquireLock(key, 60 * 1000);
-        expect(await rejection(lock.extendLock(acquired, 2.5))).to.be.an.instanceof(TypeError);
-        expect(await redis.pttl(lock._lockKey(key))).to.be.above(50 * 1000);
+        assert.ok((await rejection(lock.extendLock(acquired, 2.5))) instanceof TypeError);
+        assert.ok((await redis.pttl(lock._lockKey(key))) > 50 * 1000);
         await lock.releaseLock(acquired);
     });
 
-    it('should not create a lock key without expiry when the script gets a bad TTL', async () => {
+    it('should not create a lock key without expiry when the script gets a bad TTL', TEST_OPTS, async () => {
         const redis = makeRedis();
         const lock = makeLock({ redis, namespace: 'testTtlScript' });
 
         // Bypasses the JavaScript validation to exercise the Lua guard itself
         for (let ttl of ['', 'abc', '1.5', '0']) {
             const error = await rejection(redis[lock.fn('acquireLock')](lock._lockKey(key), lock._indexKey(), ttl));
-            expect(error, `ttl ${JSON.stringify(ttl)}`).to.be.ok;
-            expect(await redis.exists(lock._lockKey(key))).to.equal(0);
+            assert.ok(error, `ttl ${JSON.stringify(ttl)}`);
+            assert.strictEqual(await redis.exists(lock._lockKey(key)), 0);
         }
     });
 
@@ -404,56 +403,57 @@ describeStandalone('lock hardening', function () {
         { title: 'when the client uses a keyPrefix', redisOptions: { keyPrefix: 'ior4prefix:' }, namespace: 'testKeyPrefix' },
         { title: 'for a namespace containing quotes and backslashes', redisOptions: undefined, namespace: 'test"quoted\\ns' }
     ]) {
-        it(`should deliver release notifications ${title}`, async () => {
+        it(`should deliver release notifications ${title}`, TEST_OPTS, async () => {
             const redis = makeRedis(redisOptions);
             const lock = makeLock({ redis, namespace });
 
             const first = await lock.acquireLock(key, 60 * 1000);
-            expect(first.success).to.equal(true);
+            assert.strictEqual(first.success, true);
 
             setTimeout(() => lock.releaseLock(first), 300);
             const start = Date.now();
             const second = await lock.waitAcquireLock(key, 60 * 1000, 3000);
-            expect(second.success).to.equal(true);
-            expect(Date.now() - start).to.be.below(1500);
+            assert.strictEqual(second.success, true);
+            assert.ok(Date.now() - start < 1500);
 
             const release = await lock.releaseLock(second);
-            expect(release.success).to.equal(true);
-            expect(release.result).to.equal('released');
+            assert.strictEqual(release.success, true);
+            assert.strictEqual(release.result, 'released');
         });
     }
 
-    it('should close the duplicated subscriber and leave the caller connection open', async () => {
+    it('should close the duplicated subscriber and leave the caller connection open', TEST_OPTS, async () => {
         const redis = makeRedis();
         const lock = new Lock({ redis, namespace: 'testClose' });
 
         const errors = [];
         lock.on('error', err => errors.push(err));
         lock._redisSubscriber.emit('error', new Error('subscriber failure'));
-        expect(errors.map(err => err.message)).to.deep.equal(['subscriber failure']);
+        assert.deepStrictEqual(
+            errors.map(err => err.message),
+            ['subscriber failure']
+        );
 
         await lock.close();
-        expect(lock._redisSubscriber.status).to.equal('end');
-        expect(await redis.ping()).to.equal('PONG');
+        assert.strictEqual(lock._redisSubscriber.status, 'end');
+        assert.strictEqual(await redis.ping(), 'PONG');
     });
 
-    it('should close both connections when it opened them itself', async () => {
+    it('should close both connections when it opened them itself', TEST_OPTS, async () => {
         const lock = new Lock({ redis: REDIS_STANDALONE_CONFIG, namespace: 'testCloseOwned' });
         const acquired = await lock.acquireLock(key, 1000);
         await lock.releaseLock(acquired);
 
         await lock.close();
-        expect(lock._redisSubscriber.status).to.equal('end');
-        expect(lock._redisConnection.status).to.equal('end');
+        assert.strictEqual(lock._redisSubscriber.status, 'end');
+        assert.strictEqual(lock._redisConnection.status, 'end');
     });
 });
 
-describeCluster('cluster mode', function () {
-    this.timeout(15000); //eslint-disable-line no-invalid-this
-
+describeCluster('cluster mode', () => {
     let testClusterLock;
 
-    beforeEach(done => {
+    beforeEach((t, done) => {
         testClusterLock = new Lock({
             cluster: REDIS_CLUSTER_NODES,
             namespace: `testClusterLock:${Date.now()}:${Math.random()}`
@@ -463,7 +463,7 @@ describeCluster('cluster mode', function () {
         done();
     });
 
-    afterEach(done => {
+    afterEach((t, done) => {
         if (testClusterLock) {
             if (testClusterLock._redisConnection) {
                 testClusterLock._redisConnection.disconnect();
@@ -475,26 +475,26 @@ describeCluster('cluster mode', function () {
         done();
     });
 
-    it('should acquire and release a lock in cluster mode', async () => {
+    it('should acquire and release a lock in cluster mode', CLUSTER_TEST_OPTS, async () => {
         const key = `${testKey}:cluster:acquire-release`;
         const lock = await testClusterLock.acquireLock(key, 60 * 1000);
-        expect(lock.success).to.equal(true);
-        expect(lock.id).to.equal(key);
-        expect(lock.index).to.be.above(0);
+        assert.strictEqual(lock.success, true);
+        assert.strictEqual(lock.id, key);
+        assert.ok(lock.index > 0);
 
         const invalidLock = await testClusterLock.acquireLock(key, 60 * 1000);
-        expect(invalidLock.success).to.equal(false);
+        assert.strictEqual(invalidLock.success, false);
 
         const release = await testClusterLock.releaseLock(lock);
-        expect(release.success).to.equal(true);
-        expect(release.result).to.equal('released');
+        assert.strictEqual(release.success, true);
+        assert.strictEqual(release.result, 'released');
     });
 
-    it('should use hash-tagged release channel in cluster mode', () => {
-        expect(testClusterLock._releaseChannel).to.match(/\{ior4_[a-f0-9]{12}\}-release$/);
+    it('should use hash-tagged release channel in cluster mode', CLUSTER_TEST_OPTS, () => {
+        assert.match(testClusterLock._releaseChannel, /\{ior4_[a-f0-9]{12}\}-release$/);
     });
 
-    it('should apply clusterOptions when cluster is provided as an array', () => {
+    it('should apply clusterOptions when cluster is provided as an array', CLUSTER_TEST_OPTS, () => {
         const lockWithOptions = new Lock({
             cluster: REDIS_CLUSTER_NODES,
             clusterOptions: {
@@ -505,13 +505,13 @@ describeCluster('cluster mode', function () {
         lockWithOptions._redisConnection.on('error', () => false);
         lockWithOptions._redisSubscriber.on('error', () => false);
 
-        expect(lockWithOptions._redisConnection.options.slotsRefreshTimeout).to.equal(4321);
+        assert.strictEqual(lockWithOptions._redisConnection.options.slotsRefreshTimeout, 4321);
 
         lockWithOptions._redisConnection.disconnect();
         lockWithOptions._redisSubscriber.disconnect();
     });
 
-    it('should support pre-existing cluster redisConnection by duplicating with sharded subscribers', () => {
+    it('should support pre-existing cluster redisConnection by duplicating with sharded subscribers', CLUSTER_TEST_OPTS, () => {
         const clusterConnection = new Redis.Cluster(REDIS_CLUSTER_NODES);
         clusterConnection.on('error', () => false);
 
@@ -521,18 +521,18 @@ describeCluster('cluster mode', function () {
         });
         lock._redisSubscriber.on('error', () => false);
 
-        expect(lock._clusterMode).to.equal(true);
-        expect(lock._redisSubscriber.options.shardedSubscribers).to.equal(true);
-        expect(lock._redisSubscriber).to.not.equal(clusterConnection);
+        assert.strictEqual(lock._clusterMode, true);
+        assert.strictEqual(lock._redisSubscriber.options.shardedSubscribers, true);
+        assert.notStrictEqual(lock._redisSubscriber, clusterConnection);
 
         lock._redisSubscriber.disconnect();
         clusterConnection.disconnect();
     });
 
-    it('should wait and acquire after release via cluster pub/sub notification', async () => {
+    it('should wait and acquire after release via cluster pub/sub notification', CLUSTER_TEST_OPTS, async () => {
         const key = `${testKey}:cluster:wait-release`;
         const initialLock = await testClusterLock.acquireLock(key, 60 * 1000);
-        expect(initialLock.success).to.equal(true);
+        assert.strictEqual(initialLock.success, true);
 
         let start = Date.now();
         setTimeout(() => {
@@ -542,29 +542,29 @@ describeCluster('cluster mode', function () {
         const newLock = await testClusterLock.waitAcquireLock(key, 60 * 100, 3000);
         let elapsed = Date.now() - start;
 
-        expect(newLock.success).to.equal(true);
-        expect(elapsed).to.be.above(450);
-        expect(elapsed).to.be.below(4000);
+        assert.strictEqual(newLock.success, true);
+        assert.ok(elapsed > 450);
+        assert.ok(elapsed < 4000);
 
         await testClusterLock.releaseLock(newLock);
     });
 
-    it('should extend a lock in cluster mode', async () => {
+    it('should extend a lock in cluster mode', CLUSTER_TEST_OPTS, async () => {
         const key = `${testKey}:cluster:extend`;
         const initialLock = await testClusterLock.acquireLock(key, 700);
-        expect(initialLock.success).to.equal(true);
+        assert.strictEqual(initialLock.success, true);
 
         const extended = await testClusterLock.extendLock(initialLock, 3000);
-        expect(extended.success).to.equal(true);
-        expect(extended.ttl).to.equal(3000);
+        assert.strictEqual(extended.success, true);
+        assert.strictEqual(extended.ttl, 3000);
 
         const invalidLock = await testClusterLock.acquireLock(key, 60 * 1000);
-        expect(invalidLock.success).to.equal(false);
+        assert.strictEqual(invalidLock.success, false);
 
         await testClusterLock.releaseLock(initialLock);
     });
 
-    it('should report replication failure when minReplications is too high in cluster mode', async () => {
+    it('should report replication failure when minReplications is too high in cluster mode', CLUSTER_TEST_OPTS, async () => {
         const highReplicationClusterLock = new Lock({
             cluster: REDIS_CLUSTER_NODES,
             namespace: `testClusterReplication:${Date.now()}:${Math.random()}`,
@@ -577,14 +577,14 @@ describeCluster('cluster mode', function () {
         const key = `${testKey}:cluster:replication-failure`;
         const failedLock = await highReplicationClusterLock.acquireLock(key, 60 * 1000);
 
-        expect(failedLock.success).to.equal(false);
-        expect(failedLock.replicationFailure).to.equal(true);
+        assert.strictEqual(failedLock.success, false);
+        assert.strictEqual(failedLock.replicationFailure, true);
 
         highReplicationClusterLock._redisConnection.disconnect();
         highReplicationClusterLock._redisSubscriber.disconnect();
     });
 
-    it('should handle replication checks in cluster mode', async () => {
+    it('should handle replication checks in cluster mode', CLUSTER_TEST_OPTS, async () => {
         const namespace = `testClusterReplicationGeneral:${Date.now()}:${Math.random()}`;
         const replicationClusterLock = new Lock({
             cluster: REDIS_CLUSTER_NODES,
@@ -599,16 +599,16 @@ describeCluster('cluster mode', function () {
         let verificationLock;
         try {
             const lock = await replicationClusterLock.acquireLock(key, 60 * 1000);
-            expect(lock.id).to.equal(key);
-            expect(lock.index).to.be.a('number');
-            expect(lock.ttl).to.be.a('number');
+            assert.strictEqual(lock.id, key);
+            assert.strictEqual(typeof lock.index, 'number');
+            assert.strictEqual(typeof lock.ttl, 'number');
 
             if (lock.success) {
-                expect(lock.replicationFailure).to.not.equal(true);
+                assert.notStrictEqual(lock.replicationFailure, true);
                 const release = await replicationClusterLock.releaseLock(lock);
-                expect(release.success).to.equal(true);
+                assert.strictEqual(release.success, true);
             } else {
-                expect(lock.replicationFailure).to.equal(true);
+                assert.strictEqual(lock.replicationFailure, true);
                 verificationLock = new Lock({
                     cluster: REDIS_CLUSTER_NODES,
                     namespace,
@@ -618,7 +618,7 @@ describeCluster('cluster mode', function () {
                 verificationLock._redisSubscriber.on('error', () => false);
 
                 const retryLock = await verificationLock.acquireLock(key, 60 * 1000);
-                expect(retryLock.success).to.equal(true);
+                assert.strictEqual(retryLock.success, true);
                 await verificationLock.releaseLock(retryLock);
             }
         } finally {

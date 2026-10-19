@@ -4,11 +4,14 @@
     "description": "A redis binary semaphore with some consistency",
     "main": "lib/ioredfour.js",
     "scripts": {
-        "test": "TEST_TARGET=standalone grunt",
-        "test:cluster": "TEST_TARGET=cluster grunt",
-        "test:all": "TEST_TARGET=all grunt",
-        "format": "prettier --write .",
+        "test": "node --test --test-force-exit test/*-test.js",
+        "test:cluster": "TEST_TARGET=cluster node --test --test-force-exit test/*-test.js",
+        "test:all": "TEST_TARGET=all node --test --test-force-exit test/*-test.js",
+        "test:coverage": "c8 npm test",
         "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
         "update": "rm -rf node_modules package-lock.json && ncu -u && npm install"
     },
     "repository": {
@@ -33,19 +36,16 @@
         "url": "https://github.com/nodemailer/ioredfour/issues"
     },
     "homepage": "https://github.com/nodemailer/ioredfour#readme",
+    "engines": {
+        "node": ">=20.0.0"
+    },
     "devDependencies": {
-        "@eslint/js": "^10.0.1",
-        "chai": "4.3.10",
-        "eslint": "10.11.0",
-        "eslint-config-nodemailer": "1.2.0",
+        "@eslint/js": "10.0.1",
+        "c8": "12.0.0",
+        "eslint": "10.13.0",
         "eslint-config-prettier": "10.1.8",
-        "globals": "^17.12.0",
-        "grunt": "1.6.3",
-        "grunt-cli": "1.5.0",
-        "grunt-eslint": "27.0.0",
-        "grunt-mocha-test": "0.13.3",
-        "mocha": "11.8.0",
-        "prettier": "^3.9.9"
+        "globals": "17.13.0",
+        "prettier": "3.9.10"
     },
     "dependencies": {
         "ioredis": "6.0.0"
