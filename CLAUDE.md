@@ -22,7 +22,7 @@ EmailEngine ships as a `@yao-pkg/pkg` binary that snapshots a CommonJS module gr
 - **Test**: `npm test` (Node's built-in `node:test` runner, standalone Redis only)
 - **CommonJS check**: `npm run test:cjs` (the same suite with `require(esm)` disabled, see Platform constraints)
 - **Single test**: `node --test --test-force-exit --test-name-pattern="valid index" test/ioredfour-test.js`
-- **Cluster tests**: `npm run test:cluster` (needs a Redis Cluster on localhost:7000-7002), `npm run test:all` for both
+- **Cluster tests**: `npm run cluster:up && npm run test:cluster; npm run cluster:down` (see Testing), `npm run test:all` for both suites
 - **Coverage**: `npm run test:coverage` (c8)
 - **Lint**: `npm run lint` (`npm run lint:fix` to autofix)
 - **Format**: `npm run format` (prettier), `npm run format:check` to verify
@@ -34,7 +34,9 @@ Tests require a running Redis instance. Set `REDIS_STANDALONE_URL` or it default
 
 The suite leaves some Redis connections open (several tests create clients they never close), so the scripts pass `--test-force-exit`; without it the run never exits. Keep it when invoking the runner by hand.
 
-CI (`.github/workflows/test.yml`) runs lint, format check and tests on Node 20, 22 and 24 against a Redis service container, plus `npm run test:cjs` on Node 22 and 24. The cluster suite does not run in CI.
+The cluster suite needs a Redis Cluster. `npm run cluster:up` (`scripts/redis-cluster.sh`) starts three cluster nodes in one Docker container (image pinned to an exact tag in the script, container `ioredfour-cluster`) on `127.0.0.1:7100-7102`, announcing 127.0.0.1 so the slot map points at the published ports, and waits for `cluster_state:ok`; `npm run cluster:down` removes it. Nothing touches port 6379, and port 7000 is avoided because macOS runs the AirPlay receiver there. Point the tests at another cluster with `REDIS_CLUSTER_NODES=host:port,host:port,...`, or move the script's ports with `REDIS_CLUSTER_PORT` (first of three).
+
+CI (`.github/workflows/test.yml`) has two jobs, each on Node 20, 22, 24 and latest: `test` runs lint, format check and the standalone suite against a Redis service container, plus `npm run test:cjs` on everything but Node 20; `cluster` starts the cluster with the same script and runs `npm run test:cluster`.
 
 ## Architecture
 
