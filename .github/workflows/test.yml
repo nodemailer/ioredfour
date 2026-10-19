@@ -1,0 +1,44 @@
+name: Run tests
+
+on:
+    push:
+    pull_request:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    test:
+        strategy:
+            matrix:
+                node: [20.x, 22.x, 24.x]
+                os: [ubuntu-latest]
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 10
+        services:
+            redis:
+                image: redis:7
+                ports:
+                    - 6379:6379
+                options: >-
+                    --health-cmd "redis-cli ping"
+                    --health-interval 5s
+                    --health-timeout 3s
+                    --health-retries 10
+        env:
+            REDIS_STANDALONE_URL: redis://localhost:6379/11
+        steps:
+            - uses: actions/checkout@v6
+            - name: Use Node.js ${{ matrix.node }}
+              uses: actions/setup-node@v6
+              with:
+                  node-version: ${{ matrix.node }}
+                  cache: npm
+            - run: npm ci
+            - run: npm run lint
+            - run: npm run format:check
+            - run: npm test
