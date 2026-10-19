@@ -2,19 +2,64 @@
     "name": "ioredfour",
     "version": "1.4.4",
     "description": "A redis binary semaphore with some consistency",
-    "main": "lib/ioredfour.js",
+    "type": "module",
+    "main": "./dist/cjs/ioredfour.js",
+    "types": "./dist/cjs/ioredfour.d.ts",
+    "typesVersions": {
+        "*": {
+            "lib/*": [
+                "dist/cjs/*.d.ts"
+            ]
+        }
+    },
+    "exports": {
+        ".": {
+            "import": "./dist/esm/ioredfour.js",
+            "require": "./dist/cjs/ioredfour.js"
+        },
+        "./lib/ioredfour": {
+            "import": "./dist/esm/ioredfour.js",
+            "require": "./dist/cjs/ioredfour.js"
+        },
+        "./lib/ioredfour.js": {
+            "import": "./dist/esm/ioredfour.js",
+            "require": "./dist/cjs/ioredfour.js"
+        },
+        "./lib/scripts": {
+            "import": "./dist/esm/scripts.js",
+            "require": "./dist/cjs/scripts.js"
+        },
+        "./lib/scripts.js": {
+            "import": "./dist/esm/scripts.js",
+            "require": "./dist/cjs/scripts.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "LICENSE",
+        "README.md",
+        "CHANGELOG.md"
+    ],
     "scripts": {
-        "test": "node --test --test-force-exit test/*-test.js",
-        "test:cjs": "NODE_OPTIONS=--no-experimental-require-module npm test",
-        "test:cluster": "TEST_TARGET=cluster node --test --test-force-exit test/*-test.js",
+        "build": "node scripts/build.js",
+        "typecheck": "tsc -p tsconfig.json",
+        "pretest": "npm run build",
+        "test": "node --import tsx --test --test-force-exit --test-concurrency=1 test/*-test.ts test/package/*-test.ts",
+        "pretest:cjs": "npm run build",
+        "test:cjs": "NODE_OPTIONS=--no-experimental-require-module node test/package/cjs-smoke.cjs",
+        "test:pkg": "npm run build && sh scripts/pkg-smoke.sh",
+        "test:cluster": "TEST_TARGET=cluster npm test",
+        "test:all": "TEST_TARGET=all npm test",
+        "test:coverage": "TEST_TARGET=all c8 npm test",
+        "test:mutation": "node scripts/mutation-test.js",
         "cluster:up": "scripts/redis-cluster.sh up",
         "cluster:down": "scripts/redis-cluster.sh down",
-        "test:all": "TEST_TARGET=all node --test --test-force-exit test/*-test.js",
-        "test:coverage": "c8 npm test",
-        "lint": "eslint .",
+        "lint": "npm run typecheck && eslint .",
         "lint:fix": "eslint . --fix",
-        "format": "prettier --write .",
-        "format:check": "prettier --check .",
+        "format": "prettier --write \"**/*.{js,cjs,ts,json,md,yml,yaml}\"",
+        "format:check": "prettier --check \"**/*.{js,cjs,ts,json,md,yml,yaml}\"",
+        "prepare": "npm run build",
         "update": "rm -rf node_modules package-lock.json && ncu -u && npm install"
     },
     "repository": {
@@ -29,12 +74,6 @@
     ],
     "author": "Mixmax <hello@mixmax.com> (https://mixmax.com/), Daniel Reus (https://github.com/dreusel)",
     "license": "MIT",
-    "files": [
-        "lib/",
-        "LICENSE",
-        "README.md",
-        "CHANGELOG.md"
-    ],
     "bugs": {
         "url": "https://github.com/nodemailer/ioredfour/issues"
     },
@@ -43,12 +82,15 @@
         "node": ">=20.0.0"
     },
     "devDependencies": {
-        "@eslint/js": "10.0.1",
+        "@types/node": "20.19.43",
         "c8": "12.0.0",
         "eslint": "10.13.0",
         "eslint-config-prettier": "10.1.8",
         "globals": "17.13.0",
-        "prettier": "3.9.10"
+        "prettier": "3.9.10",
+        "tsx": "4.23.15",
+        "typescript": "6.0.3",
+        "typescript-eslint": "8.71.2"
     },
     "dependencies": {
         "ioredis": "6.0.0"

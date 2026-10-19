@@ -37,3 +37,8 @@ jspm_packages
 
 # Optional REPL history
 .node_repl_history
+
+# TypeScript build output and caches
+dist/
+*.tsbuildinfo
+*.tgz

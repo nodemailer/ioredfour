@@ -1,14 +1,5 @@
-# Auto-generated files
-CHANGELOG.md
-
-# Dependencies
-node_modules/
+node_modules
+coverage
+dist
 package-lock.json
-
-# Build output
-dist/
-build/
-coverage/
-
-# Logs
-*.log
+CHANGELOG.md

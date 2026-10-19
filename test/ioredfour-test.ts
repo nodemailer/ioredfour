@@ -1,32 +1,26 @@
-'use strict';
-
-const { describe, it, beforeEach, afterEach } = require('node:test');
-const assert = require('node:assert/strict');
-const Lock = require('../lib/ioredfour.js');
-const Redis = require('ioredis');
-const events = require('events');
-
-const REDIS_STANDALONE_CONFIG = process.env.REDIS_STANDALONE_URL || 'redis://localhost:6379/11';
-// Comma-separated host:port list, matching what scripts/redis-cluster.sh starts by default
-const REDIS_CLUSTER_NODES = (process.env.REDIS_CLUSTER_NODES || '127.0.0.1:7100,127.0.0.1:7101,127.0.0.1:7102').split(',').map(node => {
-    const [host, port] = node.trim().split(':');
-    return { host, port: Number(port) };
-});
-const TEST_TARGET = process.env.TEST_TARGET || 'standalone';
-const RUN_STANDALONE = TEST_TARGET === 'standalone' || TEST_TARGET === 'all';
-const RUN_CLUSTER = TEST_TARGET === 'cluster' || TEST_TARGET === 'all';
-// node:test applies a describe() timeout to the whole suite, so the per-test mocha timeouts are passed to each it()
-const TEST_OPTS = { timeout: 10000 };
-const CLUSTER_TEST_OPTS = { timeout: 15000 };
-const describeStandalone = RUN_STANDALONE ? describe : describe.skip;
-const describeCluster = RUN_CLUSTER ? describe : describe.skip;
+import { it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import events from 'node:events';
+import { Redis, Cluster } from 'ioredis';
+import Lock from '../src/ioredfour.js';
+import {
+    REDIS_STANDALONE_CONFIG,
+    REDIS_CLUSTER_NODES,
+    describeStandalone,
+    describeCluster,
+    TEST_OPTS,
+    CLUSTER_TEST_OPTS,
+    rejection,
+    connectionTracker,
+    waitFor
+} from './fixtures/redis.js';
 
 // We need an unique key just in case a previous test run ended with an exception
 // and testing keys were not immediately deleted (these expire automatically after a while)
 let testKey = 'TEST:' + Date.now();
 
 describeStandalone('lock', () => {
-    let testLock;
+    let testLock: Lock;
 
     beforeEach((t, done) => {
         const redis = new Redis(REDIS_STANDALONE_CONFIG);
@@ -69,6 +63,8 @@ describeStandalone('lock', () => {
         const newLock = await testLock.waitAcquireLock(testKey, 60 * 100, 3000);
         assert.strictEqual(newLock.success, true);
         assert.ok(Date.now() - start > 1450);
+        // woken by the release notification (or the expiry), not by the end of the wait
+        assert.ok(Date.now() - start < 2500);
 
         await testLock.releaseLock(newLock);
     });
@@ -81,6 +77,8 @@ describeStandalone('lock', () => {
         const newLock = await testLock.waitAcquireLock(testKey, 60 * 100, 3000);
         assert.strictEqual(newLock.success, true);
         assert.ok(Date.now() - start > 1450);
+        // woken by the release notification (or the expiry), not by the end of the wait
+        assert.ok(Date.now() - start < 2500);
 
         await testLock.releaseLock(newLock);
     });
@@ -99,6 +97,8 @@ describeStandalone('lock', () => {
         const newLock = await testLock.waitAcquireLock(testKey, 60 * 100, 3000);
         assert.strictEqual(newLock.success, true);
         assert.ok(Date.now() - start > 1450);
+        // woken by the release notification (or the expiry), not by the end of the wait
+        assert.ok(Date.now() - start < 2500);
 
         await testLock.releaseLock(newLock);
     });
@@ -133,6 +133,8 @@ describeStandalone('lock', () => {
         const newLock = await testExistingLock.waitAcquireLock(testKey, 60 * 100, 3000);
         assert.strictEqual(newLock.success, true);
         assert.ok(Date.now() - start > 1450);
+        // woken by the release notification (or the expiry), not by the end of the wait
+        assert.ok(Date.now() - start < 2500);
 
         await testExistingLock.releaseLock(newLock);
     });
@@ -169,6 +171,8 @@ describeStandalone('lock', () => {
                 assert.ok(!err);
                 assert.strictEqual(newLock.success, true);
                 assert.ok(Date.now() - start > 1450);
+                // woken by the release notification (or the expiry), not by the end of the wait
+                assert.ok(Date.now() - start < 2500);
 
                 testLock.releaseLock(newLock, err => {
                     assert.ok(!err);
@@ -268,7 +272,7 @@ describeStandalone('lock', () => {
             await lock.acquireLock(`${testKey}:ttl-short`, 1000);
             assert.fail('should have thrown');
         } catch (err) {
-            assert.match(err.message, /must be at least 1\.5x/);
+            assert.match((err as Error).message, /must be at least 1\.5x/);
         } finally {
             redis.disconnect();
         }
@@ -292,52 +296,28 @@ describeStandalone('lock', () => {
 });
 
 describeStandalone('lock hardening', () => {
-    let key;
-    let connections;
+    let key: string;
+    const { makeRedis, makeLock, closeAll } = connectionTracker();
 
     beforeEach(() => {
         key = `${testKey}:hardening:${Math.random()}`;
-        connections = [];
     });
 
-    afterEach(async () => {
-        for (let connection of connections) {
-            await connection.close();
-        }
-    });
-
-    let makeLock = options => {
-        let lock = new Lock(options);
-        connections.push(lock);
-        return lock;
-    };
-
-    let makeRedis = opts => {
-        let redis = new Redis(REDIS_STANDALONE_CONFIG, opts);
-        connections.push({ close: () => redis.quit() });
-        return redis;
-    };
-
-    // Resolves to the rejection reason, or undefined when the promise fulfilled
-    let rejection = p =>
-        p.then(
-            () => undefined,
-            err => err
-        );
+    afterEach(closeAll);
 
     it('should keep working when the release channel subscription is refused', TEST_OPTS, async () => {
         const redis = makeRedis();
 
         // Simulates a Redis ACL user without channel permissions (NOPERM on SUBSCRIBE)
         const originalDuplicate = redis.duplicate.bind(redis);
-        redis.duplicate = (...args) => {
+        redis.duplicate = (...args: any[]) => {
             const subscriber = originalDuplicate(...args);
             subscriber.subscribe = () => Promise.reject(new Error("NOPERM User has no permissions to access the 'x' channel"));
             return subscriber;
         };
 
-        const unhandled = [];
-        const onUnhandled = err => unhandled.push(err);
+        const unhandled: unknown[] = [];
+        const onUnhandled = (err: unknown) => unhandled.push(err);
         process.on('unhandledRejection', onUnhandled);
 
         try {
@@ -372,13 +352,13 @@ describeStandalone('lock hardening', () => {
         const lock = makeLock({ redis, namespace: 'testTtlValidation' });
 
         for (let ttl of [undefined, null, 1.5, '1000', 0, -5, NaN]) {
-            const error = await rejection(lock.acquireLock(key, ttl));
+            const error = await rejection(lock.acquireLock(key, ttl as any));
             assert.ok(error instanceof TypeError, `ttl ${ttl}`);
             assert.match(error.message, /positive integer/);
             assert.strictEqual(await redis.exists(lock._lockKey(key)), 0);
         }
 
-        assert.ok((await rejection(lock.waitAcquireLock(key, undefined, 100))) instanceof TypeError);
+        assert.ok((await rejection(lock.waitAcquireLock(key, undefined as any, 100))) instanceof TypeError);
 
         const acquired = await lock.acquireLock(key, 60 * 1000);
         assert.ok((await rejection(lock.extendLock(acquired, 2.5))) instanceof TypeError);
@@ -392,7 +372,7 @@ describeStandalone('lock hardening', () => {
 
         // Bypasses the JavaScript validation to exercise the Lua guard itself
         for (let ttl of ['', 'abc', '1.5', '0']) {
-            const error = await rejection(redis[lock.fn('acquireLock')](lock._lockKey(key), lock._indexKey(), ttl));
+            const error = await rejection((redis as any)[lock.fn('acquireLock')](lock._lockKey(key), lock._indexKey(), ttl));
             assert.ok(error, `ttl ${JSON.stringify(ttl)}`);
             assert.strictEqual(await redis.exists(lock._lockKey(key)), 0);
         }
@@ -426,7 +406,7 @@ describeStandalone('lock hardening', () => {
         const redis = makeRedis();
         const lock = new Lock({ redis, namespace: 'testClose' });
 
-        const errors = [];
+        const errors: Error[] = [];
         lock.on('error', err => errors.push(err));
         lock._redisSubscriber.emit('error', new Error('subscriber failure'));
         assert.deepStrictEqual(
@@ -448,10 +428,120 @@ describeStandalone('lock hardening', () => {
         assert.strictEqual(lock._redisSubscriber.status, 'end');
         assert.strictEqual(lock._redisConnection.status, 'end');
     });
+
+    it('should require a connection and reject cluster configurations without startup nodes', TEST_OPTS, () => {
+        assert.throws(() => new Lock(), /must provide redis/i);
+        assert.throws(() => new Lock({ cluster: true, redis: REDIS_STANDALONE_CONFIG }), /startup nodes array/);
+        assert.throws(() => new Lock({ cluster: {} }), /must include a nodes array/);
+        assert.throws(() => new Lock({ cluster: 'yes' as any }), /Invalid cluster configuration/);
+    });
+
+    it('should default the namespace and let close() run more than once', TEST_OPTS, async () => {
+        const lock = new Lock({ redis: REDIS_STANDALONE_CONFIG });
+        assert.strictEqual(lock._namespace, 'lock');
+        assert.strictEqual(lock._lockKey('x'), 'lock:x');
+        await lock.close();
+        await lock.close();
+        assert.strictEqual(lock._redisConnection.status, 'end');
+    });
+
+    it('should accept a TTL of exactly 1.5x replicationTimeout', TEST_OPTS, async () => {
+        const redis = makeRedis();
+        const lock = makeLock({ redis, namespace: 'testReplicationBoundary', minReplications: 1, replicationTimeout: 100 });
+        // No replicas here, so the lock is not replicated, but the TTL is not rejected either
+        const result = await lock.acquireLock(key, 150);
+        assert.strictEqual(result.replicationFailure, true);
+        assert.match((await rejection(lock.acquireLock(key, 149)))?.message, /at least 1\.5x/);
+    });
+
+    it('should wait indefinitely for a negative waitTtl', TEST_OPTS, async () => {
+        const redis = makeRedis();
+        const lock = makeLock({ redis, namespace: 'testNegativeWait' });
+        const holder = await lock.acquireLock(key, 60 * 1000);
+        setTimeout(() => lock.releaseLock(holder), 300);
+        const waited = await lock.waitAcquireLock(key, 1000, -1);
+        assert.strictEqual(waited.success, true);
+        await lock.releaseLock(waited);
+    });
+
+    it('should ignore messages on other channels', TEST_OPTS, async t => {
+        const redis = makeRedis();
+        const lock = makeLock({ redis, namespace: 'testForeignChannel' });
+        // the first subscription wakes the waiters once more
+        await waitFor(() => lock._pubsubSubscribed);
+        const holder = await lock.acquireLock(key, 60 * 1000);
+        const acquire = t.mock.method(lock, 'acquireLock');
+        const waiting = lock.waitAcquireLock(key, 1000, 300);
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.strictEqual(acquire.mock.callCount(), 1);
+
+        lock._redisSubscriber.emit('message', 'some-other-channel', lock._lockKey(key));
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.strictEqual(acquire.mock.callCount(), 1);
+
+        assert.strictEqual((await waiting).success, false);
+        await lock.releaseLock(holder);
+    });
+
+    it('should report a lock held by someone else without waiting for replication', TEST_OPTS, async () => {
+        const redis = makeRedis();
+        const plain = makeLock({ redis, namespace: 'testReplicationHeld' });
+        const replicated = makeLock({ redis, namespace: 'testReplicationHeld', minReplications: 1, replicationTimeout: 200 });
+
+        const holder = await plain.acquireLock(key, 60 * 1000);
+        const result = await replicated.acquireLock(key, 60 * 1000);
+        assert.strictEqual(result.success, false);
+        assert.strictEqual(result.replicationFailure, undefined);
+        assert.strictEqual(result.index, -1);
+        assert.ok(result.ttl > 50 * 1000);
+        await plain.releaseLock(holder);
+    });
+
+    // Replaces the MULTI-less pipeline of acquireLock with one that answers with the given results
+    let fakePipeline = (redis: Redis, lock: Lock, results: unknown[]) => {
+        redis.pipeline = (() => {
+            const pipeline: any = {
+                [lock.fn('acquireLock')]: () => pipeline,
+                wait: () => pipeline,
+                exec: () => Promise.resolve(results)
+            };
+            return pipeline;
+        }) as any;
+    };
+
+    it('should reject when the script or WAIT fails on the replication path', TEST_OPTS, async () => {
+        const redis = makeRedis();
+        const lock = makeLock({ redis, namespace: 'testReplicationErrors', minReplications: 1 });
+
+        fakePipeline(redis, lock, [
+            [new Error('script failed'), null],
+            [null, 1]
+        ]);
+        assert.match((await rejection(lock.acquireLock(key, 60 * 1000)))?.message, /script failed/);
+
+        fakePipeline(redis, lock, [
+            [null, [1, 5, 60 * 1000]],
+            [new Error('WAIT failed'), null]
+        ]);
+        assert.match((await rejection(lock.acquireLock(key, 60 * 1000)))?.message, /WAIT failed/);
+    });
+
+    it('should report a lock that was replicated but expired during WAIT as not acquired', TEST_OPTS, async () => {
+        const redis = makeRedis();
+        const lock = makeLock({ redis, namespace: 'testReplicationLost', minReplications: 1 });
+
+        // The script reports success, but there is no such lock to extend afterwards
+        fakePipeline(redis, lock, [
+            [null, [1, 5, 60 * 1000]],
+            [null, 1]
+        ]);
+        assert.deepStrictEqual(await lock.acquireLock(key, 60 * 1000), { id: key, success: false, index: 5, ttl: 0 });
+        assert.strictEqual(await redis.exists(lock._lockKey(key)), 0);
+    });
 });
 
 describeCluster('cluster mode', () => {
-    let testClusterLock;
+    let testClusterLock: Lock;
 
     beforeEach((t, done) => {
         testClusterLock = new Lock({
@@ -505,14 +595,14 @@ describeCluster('cluster mode', () => {
         lockWithOptions._redisConnection.on('error', () => false);
         lockWithOptions._redisSubscriber.on('error', () => false);
 
-        assert.strictEqual(lockWithOptions._redisConnection.options.slotsRefreshTimeout, 4321);
+        assert.strictEqual((lockWithOptions._redisConnection.options as any).slotsRefreshTimeout, 4321);
 
         lockWithOptions._redisConnection.disconnect();
         lockWithOptions._redisSubscriber.disconnect();
     });
 
     it('should support pre-existing cluster redisConnection by duplicating with sharded subscribers', CLUSTER_TEST_OPTS, () => {
-        const clusterConnection = new Redis.Cluster(REDIS_CLUSTER_NODES);
+        const clusterConnection = new Cluster(REDIS_CLUSTER_NODES);
         clusterConnection.on('error', () => false);
 
         let lock = new Lock({
@@ -522,7 +612,7 @@ describeCluster('cluster mode', () => {
         lock._redisSubscriber.on('error', () => false);
 
         assert.strictEqual(lock._clusterMode, true);
-        assert.strictEqual(lock._redisSubscriber.options.shardedSubscribers, true);
+        assert.strictEqual((lock._redisSubscriber.options as any).shardedSubscribers, true);
         assert.notStrictEqual(lock._redisSubscriber, clusterConnection);
 
         lock._redisSubscriber.disconnect();
@@ -544,7 +634,8 @@ describeCluster('cluster mode', () => {
 
         assert.strictEqual(newLock.success, true);
         assert.ok(elapsed > 450);
-        assert.ok(elapsed < 4000);
+        // woken by the release notification, not by the end of the wait
+        assert.ok(elapsed < 2000);
 
         await testClusterLock.releaseLock(newLock);
     });
@@ -630,4 +721,72 @@ describeCluster('cluster mode', () => {
             replicationClusterLock._redisSubscriber.disconnect();
         }
     });
+
+    it('should wake waiters when the sharded subscribers are ready again', CLUSTER_TEST_OPTS, async () => {
+        const key = `${testKey}:cluster:resubscribe`;
+        const holder = await testClusterLock.acquireLock(key, 60 * 1000);
+        await waitFor(() => testClusterLock._pubsubSubscribed, 5000);
+
+        const start = Date.now();
+        const waiting = testClusterLock.waitAcquireLock(key, 1000, 5000);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        // A release whose notification was lost while the shard subscribers reconnected
+        await testClusterLock._redisConnection.del(testClusterLock._lockKey(holder.id));
+        testClusterLock._redisSubscriber.emit('subscribersReady');
+
+        const waited = await waiting;
+        assert.strictEqual(waited.success, true);
+        assert.ok(Date.now() - start < 3000, `waited ${Date.now() - start}ms`);
+        await testClusterLock.releaseLock(waited);
+    });
+
+    it('should acquire a lock once the write reached a replica', CLUSTER_TEST_OPTS, async () => {
+        // scripts/redis-cluster.sh gives every master one replica
+        const lock = new Lock({
+            cluster: REDIS_CLUSTER_NODES,
+            namespace: `testClusterReplicated:${Date.now()}:${Math.random()}`,
+            minReplications: 1,
+            replicationTimeout: 1000
+        });
+        try {
+            const key = `${testKey}:cluster:replicated`;
+            const acquired = await lock.acquireLock(key, 60 * 1000);
+            assert.deepStrictEqual(acquired, { id: key, success: true, index: acquired.index, ttl: 60 * 1000 });
+            assert.ok(acquired.index > 0);
+
+            const taken = await lock.acquireLock(key, 60 * 1000);
+            assert.strictEqual(taken.success, false);
+            assert.strictEqual(taken.replicationFailure, undefined);
+
+            assert.strictEqual((await lock.releaseLock(acquired)).result, 'released');
+        } finally {
+            await lock.close();
+        }
+    });
+
+    for (const [title, options] of [
+        ['cluster: true with startup nodes as redis', { cluster: true, redis: REDIS_CLUSTER_NODES }],
+        ['a { nodes, options } cluster object', { cluster: { nodes: REDIS_CLUSTER_NODES, options: { slotsRefreshTimeout: 4321 } } }],
+        ['a { startupNodes } cluster object', { cluster: { startupNodes: REDIS_CLUSTER_NODES } }]
+    ] as const) {
+        it(`should connect with ${title}`, CLUSTER_TEST_OPTS, async () => {
+            const lock = new Lock({ ...options, namespace: `testClusterConfig:${Date.now()}:${Math.random()}` });
+            try {
+                assert.strictEqual(lock._clusterMode, true);
+                assert.strictEqual((lock._redisSubscriber.options as any).shardedSubscribers, true);
+                if (typeof options.cluster === 'object' && 'options' in options.cluster) {
+                    assert.strictEqual((lock._redisConnection.options as any).slotsRefreshTimeout, 4321);
+                }
+                const key = `${testKey}:cluster:config:${title}`;
+                const acquired = await lock.acquireLock(key, 60 * 1000);
+                assert.strictEqual(acquired.success, true);
+                assert.strictEqual((await lock.releaseLock(acquired)).result, 'released');
+            } finally {
+                await lock.close();
+            }
+            // The Lock opened both cluster connections itself, so close() ends both
+            assert.strictEqual(lock._redisConnection.status, 'end');
+            assert.strictEqual(lock._redisSubscriber.status, 'end');
+        });
+    }
 });
