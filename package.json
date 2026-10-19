@@ -1,6 +1,6 @@
 {
     "name": "ioredfour",
-    "version": "1.4.4",
+    "version": "2.0.0",
     "description": "A redis binary semaphore with some consistency",
     "type": "module",
     "main": "./dist/cjs/ioredfour.js",
