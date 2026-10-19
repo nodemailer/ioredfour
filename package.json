@@ -5,6 +5,7 @@
     "main": "lib/ioredfour.js",
     "scripts": {
         "test": "node --test --test-force-exit test/*-test.js",
+        "test:cjs": "NODE_OPTIONS=--no-experimental-require-module npm test",
         "test:cluster": "TEST_TARGET=cluster node --test --test-force-exit test/*-test.js",
         "test:all": "TEST_TARGET=all node --test --test-force-exit test/*-test.js",
         "test:coverage": "c8 npm test",
