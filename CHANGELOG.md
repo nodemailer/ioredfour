@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.0.0](https://github.com/nodemailer/ioredfour/compare/v1.4.4...v2.0.0) (2026-10-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* the package now has an exports map, so only the entry point, ioredfour/lib/ioredfour, ioredfour/lib/scripts and package.json can be required. TTLs above 999999999999999 ms are rejected.
+
+### Features
+
+* migrate to TypeScript with ES module and CommonJS builds ([3087266](https://github.com/nodemailer/ioredfour/commit/3087266d88b594276a2e3434c51a3e77f81745ea))
+
+
+### Bug Fixes
+
+* reject lock TTLs that PEXPIRE can not apply instead of leaving a lock key without expiry ([3087266](https://github.com/nodemailer/ioredfour/commit/3087266d88b594276a2e3434c51a3e77f81745ea))
+* stop waitAcquireLock from busy-polling or giving up early on timer delays above 2^31-1 ms ([3087266](https://github.com/nodemailer/ioredfour/commit/3087266d88b594276a2e3434c51a3e77f81745ea))
+* wake waiters after the release channel subscription is established or restored ([3087266](https://github.com/nodemailer/ioredfour/commit/3087266d88b594276a2e3434c51a3e77f81745ea))
+
 ## [1.4.4](https://github.com/nodemailer/ioredfour/compare/v1.4.3...v1.4.4) (2026-09-28)
 
 
