@@ -8,9 +8,19 @@ ioredfour is a Redis-based distributed lock (binary semaphore) library for Node.
 
 Known consumers: EmailEngine (`../emailengine`, `lib/account.js` and `lib/oauth2-apps.js`), which pins an exact version and is bundled into a `pkg` single-file binary, so the package must stay CommonJS and pure JavaScript.
 
+## Platform constraints
+
+EmailEngine ships as a `@yao-pkg/pkg` binary that snapshots a CommonJS module graph and cannot load ES modules, and its DigitalOcean one-click images update EmailEngine but never the Node.js under it. Two rules follow:
+
+- **Node.js 20 is the minimum.** Code, tests and tooling must work on Node 20, 22 and 24 (`engines.node` is `>=20.0.0`).
+- **Everything that reaches runtime must be genuinely CommonJS-loadable.** The package and every runtime dependency (ioredis and its tree) must load through `require()` with `--no-experimental-require-module`. A CommonJS entry that only wraps a dynamic `import()` of ESM code does not count. Node 22+ (and 20.19) load ES modules through `require()` by default, so a plain `npm test` stays green with an ESM-only dependency.
+- **How to check:** `npm run test:cjs` runs the standalone suite with `NODE_OPTIONS=--no-experimental-require-module`; CI runs it on Node 22 and 24. Run it after any dependency change.
+- **Pinning:** never add or upgrade to an ESM-only dependency, nor to one that needs a newer Node than 20. Hold the last compatible major in `.ncurc.js` (`reject` or `target`) with a comment giving the reason.
+
 ## Commands
 
 - **Test**: `npm test` (Node's built-in `node:test` runner, standalone Redis only)
+- **CommonJS check**: `npm run test:cjs` (the same suite with `require(esm)` disabled, see Platform constraints)
 - **Single test**: `node --test --test-force-exit --test-name-pattern="valid index" test/ioredfour-test.js`
 - **Cluster tests**: `npm run test:cluster` (needs a Redis Cluster on localhost:7000-7002), `npm run test:all` for both
 - **Coverage**: `npm run test:coverage` (c8)
@@ -24,7 +34,7 @@ Tests require a running Redis instance. Set `REDIS_STANDALONE_URL` or it default
 
 The suite leaves some Redis connections open (several tests create clients they never close), so the scripts pass `--test-force-exit`; without it the run never exits. Keep it when invoking the runner by hand.
 
-CI (`.github/workflows/test.yml`) runs lint, format check and tests on Node 20, 22 and 24 against a Redis service container. The cluster suite does not run in CI.
+CI (`.github/workflows/test.yml`) runs lint, format check and tests on Node 20, 22 and 24 against a Redis service container, plus `npm run test:cjs` on Node 22 and 24. The cluster suite does not run in CI.
 
 ## Architecture
 
@@ -57,7 +67,7 @@ These mirror the conventions used across Postal Systems projects (see `../emaile
 
 - No emojis anywhere in code or documentation, printable ASCII only.
 - Use a single hyphen-minus (`-`) as a dash in user-facing strings and docs. Never use double hyphens (`--`), em dashes, or en dashes.
-- Dev dependencies are pinned to exact versions. Runtime code stays CommonJS; reject ESM-only dependency upgrades in `.ncurc.js` with a reason.
+- Dev dependencies are pinned to exact versions. Runtime code stays CommonJS (see Platform constraints).
 
 **Before committing code changes**
 
