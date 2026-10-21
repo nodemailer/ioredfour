@@ -80,6 +80,42 @@ const Lock = require('ioredfour');
 })();
 ```
 
+## withLock
+
+`withLock(id, ttl, waitTtl, fn, opts?)` covers the usual acquire, work, release sequence. It waits up to `waitTtl` milliseconds for the lock, like `waitAcquireLock` (`0` or `undefined` waits indefinitely), calls `fn(lock, signal)` while holding it and always releases the lock afterwards, whether `fn` resolved or threw. It resolves to what `fn` returns and rejects with what `fn` throws.
+
+When the lock is not obtained, `fn` is not called and `withLock` rejects with a `Lock.LockError` whose `code` is `'ELOCKNOTACQUIRED'`. The error carries the lock `id`, `ttl` (the remaining TTL of the current holder's lock, `0` if unknown), `index` (`-1`) and `replicationFailure` (`true` when the lock was acquired but failed the `minReplications` check). A Redis error while acquiring and an invalid TTL reject with that error instead, as `waitAcquireLock` does.
+
+With `{ extend: true }` the lock is extended to the full `ttl` every `ttl / 2` milliseconds while `fn` runs, so `ttl` only has to cover a stalled process, not the whole job. Extending stops when `fn` settles, and an extension still in flight finishes before the lock is released. If an extension fails (the lock expired and someone else took it, or Redis returned an error), extending stops and `signal` is aborted with a `Lock.LockError` (`code: 'ELOCKLOST'`) as `signal.reason`, its `cause` being the `extendLock` result or the Redis error. `fn` should then stop as soon as it can, the lock may already belong to someone else. Without `extend` the signal is never aborted.
+
+A failed release does not change what `withLock` resolves or rejects with, the lock expires after its TTL anyway. The release error is emitted as an `error` event when a listener is attached.
+
+```js
+const Lock = require('ioredfour');
+const lock = new Lock({ redis: 'redis://localhost:6379', namespace: 'jobs' });
+
+try {
+    const result = await lock.withLock(
+        'renew:account-1',
+        60 * 1000, // lock TTL
+        10 * 1000, // wait up to 10 seconds for the lock
+        async (held, signal) => {
+            // held.index identifies this lock holder
+            return await renewSubscription({ signal });
+        },
+        { extend: true }
+    );
+} catch (err) {
+    if (err instanceof Lock.LockError && err.code === 'ELOCKNOTACQUIRED') {
+        // someone else is doing the work
+    } else {
+        throw err;
+    }
+}
+```
+
+`withLock` has no callback form. The TypeScript declarations export the `LockError`, `LockErrorCode`, `WithLockFunction` and `WithLockOptions` types.
+
 ## Errors and shutdown
 
 `Lock` is an `EventEmitter`. Connection errors from the Pub/Sub subscriber connection (and from the command connection when the `Lock` opened it itself) are emitted as `error` events, so attach a listener if you want to log them. Without a listener they are dropped instead of being printed by ioredis.

@@ -22,7 +22,7 @@ const hasDist = fs.existsSync(path.join(root, 'dist', 'cjs', 'ioredfour.d.ts')) 
 // the overloads type them
 const consumer = `
 import Lock from 'ioredfour';
-import type { AcquireResult, ExtendResult, LockHandle, LockOptions, ReleaseResult } from 'ioredfour';
+import type { AcquireResult, ExtendResult, LockError, LockErrorCode, LockHandle, LockOptions, ReleaseResult, WithLockFunction, WithLockOptions } from 'ioredfour';
 import { Redis, Cluster } from 'ioredis';
 import { acquireScript, releaseScript } from 'ioredfour/lib/scripts';
 
@@ -51,6 +51,22 @@ export async function run(): Promise<void> {
     const result: 'released' | 'expired' | 'conflict' = released.result;
     await lock.close();
     void [flag, ttl, result, acquireScript(), releaseScript(true)];
+
+    const value: number = await lock.withLock('id', 1000, 500, async (held, signal) => held.index + Number(signal.aborted));
+    const sync: string = await lock.withLock(1, 1000, undefined, held => String(held.id), { extend: true });
+    const withOptions: WithLockOptions = { extend: undefined };
+    const job: WithLockFunction<void> = async () => undefined;
+    await lock.withLock('id', 1000, 0, job, withOptions);
+    try {
+        await lock.withLock('id', 1000, 0, () => 1);
+    } catch (err) {
+        if (err instanceof Lock.LockError) {
+            const typed: LockError = err;
+            const code: LockErrorCode = typed.code;
+            void [code, typed.ttl, typed.replicationFailure, typed.index, typed.id];
+        }
+    }
+    void [value, sync];
 
     lock.acquireLock('id', 1000, (err, res) => res.success && err === null);
     lock.waitAcquireLock('id', 1000, 500, (err, res) => res.index + Number(!!err));

@@ -108,6 +108,56 @@ export interface ExtendResult {
 
 export type LockCallback<T> = (err: Error | null, result: T) => void;
 
+/**
+ * `ELOCKNOTACQUIRED`: `withLock` could not get the lock within `waitTtl`.
+ * `ELOCKLOST`: an automatic extension of a `withLock` lock failed, used as the abort reason.
+ */
+export type LockErrorCode = 'ELOCKNOTACQUIRED' | 'ELOCKLOST';
+
+/** Thrown by `withLock` when the lock is not obtained, and the abort reason when an extension fails. Available as `Lock.LockError`. */
+class LockError extends Error {
+    code: LockErrorCode;
+    /** The lock id */
+    id: LockId;
+    /** Index of the lock that was lost, `-1` if it was never acquired */
+    index: number;
+    /** `ELOCKNOTACQUIRED`: remaining TTL of the current holder's lock (ms), `0` if unknown */
+    ttl: number;
+    /** `ELOCKNOTACQUIRED`: set when the lock was acquired but failed the `minReplications` check */
+    replicationFailure: boolean;
+
+    constructor(
+        message: string,
+        code: LockErrorCode,
+        details: { id: LockId; index: number; ttl: number; replicationFailure?: boolean | undefined; cause?: unknown }
+    ) {
+        super(message, 'cause' in details ? { cause: details.cause } : undefined);
+        this.name = 'LockError';
+        this.code = code;
+        this.id = details.id;
+        this.index = details.index;
+        this.ttl = details.ttl;
+        this.replicationFailure = !!details.replicationFailure;
+    }
+}
+
+export type { LockError };
+
+export interface WithLockOptions {
+    /**
+     * Extend the lock to the full `ttl` every `ttl / 2` ms while the function runs. When an
+     * extension fails, extending stops and the signal passed to the function is aborted with a
+     * `LockError` (`ELOCKLOST`) as its reason. Defaults to `false`.
+     */
+    extend?: boolean | undefined;
+}
+
+/**
+ * The function `withLock` runs while holding the lock. `signal` is aborted only when an automatic
+ * extension fails (`extend: true`), meaning the lock may be held by someone else by now.
+ */
+export type WithLockFunction<T> = (lock: AcquireResult, signal: AbortSignal) => T | PromiseLike<T>;
+
 type ScriptReply = [number, number, number];
 type ReleaseReply = [number, ReleaseResult['result'], number];
 
@@ -116,6 +166,9 @@ type ReleaseReply = [number, ReleaseResult['result'], number];
  * it manages, but only when an `error` listener is attached.
  */
 class Lock extends EventEmitter {
+    /** The error class `withLock` throws when the lock is not obtained */
+    declare static LockError: typeof LockError;
+
     /** @internal */
     _namespace: string;
     /** @internal */
@@ -624,6 +677,101 @@ class Lock extends EventEmitter {
             tryAcquire();
         });
     }
+
+    /**
+     * Acquires a lock (waiting up to `waitTtl` like `waitAcquireLock`), runs `fn` while holding
+     * it and always releases it afterwards, whether `fn` resolved or threw. Resolves to what `fn`
+     * returns and rejects with what it throws. A failed release does not change that outcome
+     * (the lock expires after its TTL anyway), it is emitted as an `error` event when a listener
+     * is attached.
+     *
+     * Rejects with a `LockError` (`code: 'ELOCKNOTACQUIRED'`) when the lock was not obtained in
+     * time, and with the Redis error when acquiring failed for another reason; `fn` is not called
+     * in either case.
+     *
+     * @param id Identifies the lock
+     * @param ttl Lock TTL (ms). Must be a positive integer
+     * @param waitTtl Give up after this many milliseconds, or wait indefinitely if the value is 0 or undefined
+     * @param fn Runs while the lock is held, called with the lock and an AbortSignal
+     * @param opts `extend: true` keeps the lock alive while `fn` runs
+     */
+    async withLock<T>(id: LockId, ttl: number, waitTtl: number | undefined, fn: WithLockFunction<T>, opts?: WithLockOptions): Promise<Awaited<T>> {
+        if (typeof fn !== 'function') {
+            throw new TypeError(`Expected a function to run while holding the lock, got ${String(fn)}`);
+        }
+
+        const lock = await this.waitAcquireLock(id, ttl, waitTtl);
+        if (!lock.success) {
+            throw new LockError(lock.replicationFailure ? 'Lock was not replicated in time' : 'Lock is held by someone else', 'ELOCKNOTACQUIRED', {
+                id,
+                index: lock.index,
+                ttl: lock.ttl,
+                replicationFailure: lock.replicationFailure
+            });
+        }
+
+        const controller = new AbortController();
+        const extender = opts?.extend ? this._autoExtend(lock, ttl, controller) : undefined;
+        try {
+            return await fn(lock, controller.signal);
+        } finally {
+            if (extender) {
+                await extender.stop();
+            }
+            try {
+                await this.releaseLock(lock);
+            } catch (err) {
+                if (this.listenerCount('error')) {
+                    this.emit('error', err);
+                }
+            }
+        }
+    }
+
+    /** @internal Extends the lock every ttl/2 until stopped or an extension fails */
+    _autoExtend(lock: AcquireResult, ttl: number, controller: AbortController): { stop(): Promise<void> } {
+        const interval = Math.max(1, Math.min(Math.floor(ttl / 2), MAX_TIMER_DELAY));
+        let stopped = false;
+        let timer: NodeJS.Timeout | undefined;
+        let pending: Promise<void> = Promise.resolve();
+
+        const lost = (cause: unknown) => {
+            controller.abort(
+                new LockError('Failed to extend the lock, it may be held by someone else', 'ELOCKLOST', { id: lock.id, index: lock.index, ttl: 0, cause })
+            );
+        };
+
+        const schedule = () => {
+            timer = setTimeout(() => {
+                pending = this.extendLock(lock, ttl).then(
+                    result => {
+                        if (!result.success) {
+                            return lost(result);
+                        }
+                        if (!stopped) {
+                            schedule();
+                        }
+                    },
+                    err => lost(err)
+                );
+            }, interval);
+            // the function the lock protects keeps the process alive, not the extension
+            timer.unref();
+        };
+        schedule();
+
+        return {
+            stop: () => {
+                stopped = true;
+                clearTimeout(timer);
+                // let an extension in flight settle so it can not land after the release
+                return pending;
+            }
+        };
+    }
 }
+
+// Non-enumerable, so the module keeps the shape `require('ioredfour')` always had
+Object.defineProperty(Lock, 'LockError', { value: LockError, enumerable: false, writable: true, configurable: true });
 
 export default Lock;

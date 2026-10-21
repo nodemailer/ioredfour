@@ -37,6 +37,15 @@ async function run() {
         assert.ok(second.index > first.index);
         const released = await lock.releaseLock(second);
         assert.strictEqual(released.result, 'released');
+
+        const value = await lock.withLock(id, 10 * 1000, 5 * 1000, held => held.index, { extend: true });
+        assert.ok(value > second.index);
+        const holder = await lock.acquireLock(id, 10 * 1000);
+        await assert.rejects(
+            lock.withLock(id, 10 * 1000, 50, () => 1),
+            err => err instanceof Lock.LockError && err.code === 'ELOCKNOTACQUIRED'
+        );
+        await lock.releaseLock(holder);
     } finally {
         await lock.close();
         await redis.quit();

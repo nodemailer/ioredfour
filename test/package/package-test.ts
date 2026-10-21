@@ -21,7 +21,7 @@ const packageName: string = 'ioredfour';
 const hasDist = fs.existsSync(path.join(root, 'dist', 'cjs', 'ioredfour.js')) && fs.existsSync(path.join(root, 'dist', 'esm', 'ioredfour.js'));
 
 // Every lock method of the pre-TypeScript CommonJS class
-const LOCK_METHODS = ['acquireLock', 'releaseLock', 'extendLock', 'waitAcquireLock', 'close'];
+const LOCK_METHODS = ['acquireLock', 'releaseLock', 'extendLock', 'waitAcquireLock', 'withLock', 'close'];
 
 describe('Built package', { timeout: 30 * 1000, skip: hasDist ? false : 'dist/ is not built, run npm run build first' }, () => {
     it('ships both module formats with type declarations', () => {
@@ -81,6 +81,9 @@ describe('Built package', { timeout: 30 * 1000, skip: hasDist ? false : 'dist/ i
             assert.strictEqual(Lock.default, Lock);
             assert.deepStrictEqual(Object.keys(Lock), []);
             assert.ok(Lock.prototype instanceof EventEmitter);
+            // the withLock error class hangs off the class, not off the module
+            assert.strictEqual(typeof Lock.LockError, 'function');
+            assert.ok(Lock.LockError.prototype instanceof Error);
         });
 
         it('keeps the lib/ deep imports of the JavaScript package working', () => {
@@ -128,6 +131,7 @@ describe('Built package', { timeout: 30 * 1000, skip: hasDist ? false : 'dist/ i
             for (const method of LOCK_METHODS) {
                 assert.strictEqual(typeof mod.default.prototype[method], 'function', method);
             }
+            assert.ok(mod.default.LockError.prototype instanceof Error);
         });
 
         it('exposes the deep imports', async () => {
