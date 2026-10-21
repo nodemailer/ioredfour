@@ -64,6 +64,33 @@ describeStandalone('withLock', () => {
         assert.strictEqual(await lock.withLock(nextId(), 1000, 0, held => held.index > 0), true);
     });
 
+    it('with wait: false should try the lock once and reject at once when it is held', TEST_OPTS, async () => {
+        const id = nextId();
+        const holder = await lock.acquireLock(id, 10 * 1000);
+        let called = false;
+        const started = Date.now();
+        const err: any = await rejection(
+            lock.withLock(
+                id,
+                10 * 1000,
+                5000,
+                () => {
+                    called = true;
+                },
+                { wait: false }
+            )
+        );
+        assert.ok(err instanceof Lock.LockError);
+        assert.strictEqual(err.code, 'ELOCKNOTACQUIRED');
+        assert.strictEqual(called, false);
+        assert.ok(Date.now() - started < 2000, 'waitTtl is ignored');
+        await lock.releaseLock(holder);
+
+        // and runs when the lock is free
+        assert.strictEqual(await lock.withLock(id, 1000, 0, () => 'ran', { wait: false }), 'ran');
+        assert.strictEqual(await redis.exists(lockKey(id)), 0);
+    });
+
     it('should reject with ELOCKNOTACQUIRED without calling the function when the lock is held', TEST_OPTS, async () => {
         const id = nextId();
         const holder = await lock.acquireLock(id, 10 * 1000);

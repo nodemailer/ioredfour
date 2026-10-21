@@ -150,6 +150,12 @@ export interface WithLockOptions {
      * `LockError` (`ELOCKLOST`) as its reason. Defaults to `false`.
      */
     extend?: boolean | undefined;
+    /**
+     * Wait for the lock (`waitTtl`, like `waitAcquireLock`). With `false` the lock is tried once,
+     * like `acquireLock`, and a lock someone else holds rejects with `ELOCKNOTACQUIRED` right away;
+     * `waitTtl` is then ignored. Defaults to `true`.
+     */
+    wait?: boolean | undefined;
 }
 
 /**
@@ -700,7 +706,7 @@ class Lock extends EventEmitter {
             throw new TypeError(`Expected a function to run while holding the lock, got ${String(fn)}`);
         }
 
-        const lock = await this.waitAcquireLock(id, ttl, waitTtl);
+        const lock = opts?.wait === false ? await this.acquireLock(id, ttl) : await this.waitAcquireLock(id, ttl, waitTtl);
         if (!lock.success) {
             throw new LockError(lock.replicationFailure ? 'Lock was not replicated in time' : 'Lock is held by someone else', 'ELOCKNOTACQUIRED', {
                 id,
