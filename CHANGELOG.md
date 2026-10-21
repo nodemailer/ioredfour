@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/nodemailer/ioredfour/compare/v2.1.0...v2.2.0) (2026-10-21)
+
+
+### Features
+
+* add a wait option to withLock() for a single try at the lock ([fc77886](https://github.com/nodemailer/ioredfour/commit/fc7788620868eced633106ffc45e6ff79ca3e82e))
+
 ## [2.1.0](https://github.com/nodemailer/ioredfour/compare/v2.0.0...v2.1.0) (2026-10-21)
 
 
