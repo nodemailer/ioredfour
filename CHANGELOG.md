@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/nodemailer/ioredfour/compare/v2.0.0...v2.1.0) (2026-10-21)
+
+
+### Features
+
+* add withLock() to run a function under a lock with optional auto-extension ([6f51dff](https://github.com/nodemailer/ioredfour/commit/6f51dffadf29e6c1861ce7cf043fe0ebfb961bc7))
+
 ## [2.0.0](https://github.com/nodemailer/ioredfour/compare/v1.4.4...v2.0.0) (2026-10-19)
 
 
