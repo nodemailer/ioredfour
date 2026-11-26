@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/nodemailer/ioredfour/compare/v2.2.0...v2.2.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* update dependencies ([7d90fa6](https://github.com/nodemailer/ioredfour/commit/7d90fa6baddbcf1785a7ee4aeaf49fbffd67ee09))
+
 ## [2.2.0](https://github.com/nodemailer/ioredfour/compare/v2.1.0...v2.2.0) (2026-10-21)
 
 
